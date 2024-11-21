@@ -2,7 +2,7 @@
 const express = require('express');
 const cors = require('cors');
 const connectDB = require('./db/connect');
-const zentariRoutes = require('./routes/zentariRoutes');
+const warthugRoutes = require('./routes/warthugRoutes');
 require('dotenv').config();
 
 const app = express();
