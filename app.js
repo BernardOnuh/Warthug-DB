@@ -14,7 +14,7 @@ app.get('/hello', (req, res) => {
   res.send('Task Manager');
 });
 
-app.use('/api/zentari', zentariRoutes);
+app.use('/api/warthug', warthugRoutes);
 
 const port = process.env.PORT || 3001;
 
