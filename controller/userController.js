@@ -176,14 +176,19 @@ const getReferralDetails = async (req, res) => {
 
 // Get Leaderboard
 const getLeaderboard = async (req, res) => {
-  const { type } = req.query;
+  const { type } = req.query; // `type` could be 'points', 'referrals', or 'hourly'
 
   try {
     let leaderboard = [];
 
     if (type === 'points') {
-      leaderboard = await User.find({}).sort({ totalPoints: -1 }).limit(10).select('username totalPoints');
+      // Leaderboard by total points
+      leaderboard = await User.find({})
+        .sort({ totalPoints: -1 })
+        .limit(50)
+        .select('username totalPoints');
     } else if (type === 'referrals') {
+      // Leaderboard by number of referrals (direct + indirect)
       leaderboard = await User.aggregate([
         {
           $project: {
@@ -192,8 +197,14 @@ const getLeaderboard = async (req, res) => {
           }
         },
         { $sort: { totalReferrals: -1 } },
-        { $limit: 10 }
+        { $limit: 50 }
       ]);
+    } else if (type === 'hourly') {
+      // Leaderboard by hourly mining points (`perHour`)
+      leaderboard = await User.find({})
+        .sort({ perHour: -1 })
+        .limit(50)
+        .select('username perHour');
     } else {
       return res.status(400).json({ message: 'Invalid leaderboard type' });
     }
@@ -203,6 +214,7 @@ const getLeaderboard = async (req, res) => {
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
 
 // Monitor User Status
 const monitorUserStatus = async (req, res) => {
