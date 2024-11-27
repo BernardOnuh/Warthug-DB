@@ -2,13 +2,13 @@ const express = require('express');
 const router = express.Router();
 const {
   registerUser,
-  upgradeLevel,
   handleTap,
-  monitorUserStatus,
-  getAllUsers,
-  performDailyCheckIn, 
-  getCheckInStatus,
-  getReferralDetails
+  awardHourlyPoints,
+  upgradeTapPower,
+  upgradeEnergyLimit,
+  getReferralDetails,
+  getLeaderboard,
+  monitorUserStatus
 } = require('../controller/userController');
 
 const {
@@ -27,30 +27,30 @@ const {
 // POST: Register a new user
 router.post('/register', registerUser);
 
-// PUT: Upgrade speed, multitap, or energy limit level
-router.put('/upgrade', upgradeLevel);
-
-// PUT: Handle tapping (consume energy and increase power)
+// PUT: Handle tapping (consume energy and increase points)
 router.put('/tap', handleTap);
+
+// PUT: Award hourly points
+router.put('/hourly', awardHourlyPoints);
+
+// PUT: Upgrade tap power
+router.put('/upgrade/tap-power', upgradeTapPower);
+
+// PUT: Upgrade energy limit
+router.put('/upgrade/energy-limit', upgradeEnergyLimit);
+
+// GET: Get referral details
+router.get('/referrals/:userId', getReferralDetails);
+
+// GET: Get leaderboard (type = points or referrals)
+router.get('/leaderboard', getLeaderboard);
 
 // GET: Monitor user status by userId
 router.get('/status/:userId', monitorUserStatus);
 
-// GET: Fetch all users with their userId
-router.get('/users', getAllUsers);
-
-// POST route for performing daily check-in
-router.post('/check-in', performDailyCheckIn);
-
-// GET route for retrieving check-in status
-router.get('/check-in/:userId', getCheckInStatus);
-
-router.get('/referral-details/:userId', getReferralDetails);
-
-
 // TASK ROUTES
 
-// GET: Get all tasks for a specific user (excluding completed tasks)
+// GET: Get all tasks for a specific user
 router.get('/tasks/:username', getTasksForUser);
 
 // GET: Get a specific task by its ID
@@ -71,6 +71,7 @@ router.post('/tasks', createMultipleTasks);
 // GET: Get all completed tasks for a specific user
 router.get('/tasks/completed/:username', getCompletedTasks);
 
+// POST: Mark a task as completed
 router.post('/complete/:telegramUserId/:taskId', completeTask);
 
 module.exports = router;
