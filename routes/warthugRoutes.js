@@ -8,7 +8,9 @@ const {
   upgradeEnergyLimit,
   getReferralDetails,
   getLeaderboard,
-  monitorUserStatus
+  monitorUserStatus,
+  getAllPoints,
+  convertToHugPoints,
 } = require('../controller/userController');
 
 const {
@@ -19,7 +21,8 @@ const {
   deleteTask,
   createMultipleTasks,
   getCompletedTasks,
-  completeTask
+  completeTask,
+
 } = require('../controller/taskController');
 
 // USER ROUTES
@@ -73,5 +76,10 @@ router.get('/tasks/completed/:username', getCompletedTasks);
 
 // POST: Mark a task as completed
 router.post('/complete/:telegramUserId/:taskId', completeTask);
+
+// Points routes
+router.get('/points/:userId', getAllPoints);
+
+router.post('/convert-hug-points', convertToHugPoints);
 
 module.exports = router;

@@ -176,42 +176,22 @@ const getReferralDetails = async (req, res) => {
 
 // Get Leaderboard
 const getLeaderboard = async (req, res) => {
-  const { type } = req.query; // `type` could be 'points', 'referrals', or 'hourly'
+  const { type = 'points', userId } = req.query;
 
   try {
-    let leaderboard = [];
+    const leaderboardData = await User.getLeaderboardWithDetails(type, userId);
 
-    if (type === 'points') {
-      // Leaderboard by total points
-      leaderboard = await User.find({})
-        .sort({ totalPoints: -1 })
-        .limit(50)
-        .select('username totalPoints');
-    } else if (type === 'referrals') {
-      // Leaderboard by number of referrals (direct + indirect)
-      leaderboard = await User.aggregate([
-        {
-          $project: {
-            username: 1,
-            totalReferrals: { $add: [{ $size: '$directReferrals' }, { $size: '$indirectReferrals' }] }
-          }
-        },
-        { $sort: { totalReferrals: -1 } },
-        { $limit: 50 }
-      ]);
-    } else if (type === 'hourly') {
-      // Leaderboard by hourly mining points (`perHour`)
-      leaderboard = await User.find({})
-        .sort({ perHour: -1 })
-        .limit(50)
-        .select('username perHour');
-    } else {
-      return res.status(400).json({ message: 'Invalid leaderboard type' });
-    }
-
-    res.status(200).json({ message: 'Leaderboard retrieved successfully', type, leaderboard });
+    res.status(200).json({
+      message: 'Leaderboard retrieved successfully',
+      type,
+      data: {
+        leaderboard: leaderboardData.leaderboard,
+        userPosition: leaderboardData.userPosition,
+        totalParticipants: leaderboardData.total
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
@@ -248,6 +228,54 @@ const monitorUserStatus = async (req, res) => {
   }
 };
 
+// Get all points information
+const getAllPoints = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const pointsInfo = user.getAllPointsInfo();
+    res.status(200).json({
+      message: 'Points information retrieved successfully',
+      pointsInfo
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Convert to Hug points
+const convertToHugPoints = async (req, res) => {
+  const { userId, pointsToConvert } = req.body;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    try {
+      const newHugPoints = user.convertToHugPoints(pointsToConvert);
+      await user.save();
+      
+      res.status(200).json({
+        message: 'Points converted successfully',
+        convertedHugPoints: newHugPoints,
+        currentStats: user.getAllPointsInfo()
+      });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+
 module.exports = {
   registerUser,
   handleTap,
@@ -256,5 +284,7 @@ module.exports = {
   upgradeEnergyLimit,
   getReferralDetails,
   getLeaderboard,
-  monitorUserStatus
+  monitorUserStatus,
+  getAllPoints,
+  convertToHugPoints,
 };
