@@ -1,5 +1,7 @@
+// routes/index.js
 const express = require('express');
 const router = express.Router();
+
 const {
   registerUser,
   handleTap,
@@ -11,75 +13,46 @@ const {
   monitorUserStatus,
   getAllPoints,
   convertToHugPoints,
+  claimDaily,
+  getDailyClaimInfo,
 } = require('../controller/userController');
 
-const {
-  getTasksForUser,
-  getTaskById,
-  createTask,
-  updateTask,
-  deleteTask,
-  createMultipleTasks,
-  getCompletedTasks,
-  completeTask,
-
-} = require('../controller/taskController');
+const taskController = require('../controller/taskController');
 
 // USER ROUTES
-
-// POST: Register a new user
+// Core user functionality
 router.post('/register', registerUser);
-
-// PUT: Handle tapping (consume energy and increase points)
 router.put('/tap', handleTap);
-
-// PUT: Award hourly points
 router.put('/hourly', awardHourlyPoints);
 
-// PUT: Upgrade tap power
+// User upgrades
 router.put('/upgrade/tap-power', upgradeTapPower);
-
-// PUT: Upgrade energy limit
 router.put('/upgrade/energy-limit', upgradeEnergyLimit);
 
-// GET: Get referral details
+// User information and stats
 router.get('/referrals/:userId', getReferralDetails);
-
-// GET: Get leaderboard (type = points or referrals)
 router.get('/leaderboard', getLeaderboard);
-
-// GET: Monitor user status by userId
 router.get('/status/:userId', monitorUserStatus);
+router.get('/points/:userId', getAllPoints);
+router.post('/convert-hug-points', convertToHugPoints);
 
 // TASK ROUTES
+// Public task endpoints
+router.get('/tasks/all', taskController.getAllTasks);
+router.get('/tasks/task/:taskId', taskController.getTaskById);
 
-// GET: Get all tasks for a specific user
-router.get('/tasks/:username', getTasksForUser);
+// User-specific task endpoints
+router.get('/tasks/user/:userId', taskController.getTasksForUser);
+router.get('/tasks/completed/:userId', taskController.getCompletedTasks);
+router.post('/tasks/complete/:userId/:taskId', taskController.completeTask);
 
-// GET: Get a specific task by its ID
-router.get('/task/:taskId', getTaskById);
+// Task management endpoints (admin)
+router.post('/tasks/create', taskController.createTask);
+router.post('/tasks/batch', taskController.createMultipleTasks);
+router.put('/tasks/update/:taskId', taskController.updateTask);
+router.delete('/tasks/delete/:taskId', taskController.deleteTask);
 
-// POST: Create a new task
-router.post('/task', createTask);
-
-// PUT: Update a specific task by its ID
-router.put('/task/:taskId', updateTask);
-
-// DELETE: Delete a task by its ID
-router.delete('/task/:taskId', deleteTask);
-
-// POST: Create multiple tasks
-router.post('/tasks', createMultipleTasks);
-
-// GET: Get all completed tasks for a specific user
-router.get('/tasks/completed/:username', getCompletedTasks);
-
-// POST: Mark a task as completed
-router.post('/complete/:telegramUserId/:taskId', completeTask);
-
-// Points routes
-router.get('/points/:userId', getAllPoints);
-
-router.post('/convert-hug-points', convertToHugPoints);
+router.post('/claim-daily', claimDaily);
+router.get('/daily-claim-info/:userId', getDailyClaimInfo);
 
 module.exports = router;

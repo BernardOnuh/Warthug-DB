@@ -275,6 +275,71 @@ const convertToHugPoints = async (req, res) => {
   }
 };
 
+const claimDaily = async (req, res) => {
+  const { userId } = req.body;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    try {
+      const claimResult = user.processDailyClaim();
+      await user.save();
+      
+      res.status(200).json({
+        message: 'Daily reward claimed successfully',
+        data: {
+          claimedAmount: claimResult.claimedAmount,
+          currentStreak: claimResult.newStreak,
+          nextClaimAmount: claimResult.nextClaimAmount,
+          tapPoints: user.tapPoints,
+          nextClaimAvailable: new Date(user.lastDailyClaim.getTime() + 24 * 60 * 60 * 1000)
+        }
+      });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+const getDailyClaimInfo = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const canClaim = user.canClaimDaily();
+    const nextClaimAmount = user.calculateDailyClaimAmount();
+    const currentStreak = user.dailyClaimStreak;
+    
+    let nextClaimTime = null;
+    if (!canClaim && user.lastDailyClaim) {
+      nextClaimTime = new Date(user.lastDailyClaim.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    res.status(200).json({
+      message: 'Daily claim info retrieved successfully',
+      data: {
+        canClaim,
+        currentStreak,
+        nextClaimAmount,
+        nextClaimTime,
+        streakWeek: Math.floor(currentStreak / 7) + 1,
+        dayInWeek: (currentStreak % 7) + 1
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
 
 module.exports = {
   registerUser,
@@ -287,4 +352,6 @@ module.exports = {
   monitorUserStatus,
   getAllPoints,
   convertToHugPoints,
+  claimDaily,
+  getDailyClaimInfo,
 };

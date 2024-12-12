@@ -22,6 +22,11 @@ const userSchema = new mongoose.Schema({
   level: { type: Number, default: 0, min: 0 },
   totalPoints: { type: Number, default: 0, min: 0 },
 
+  // Daily Claim System
+  dailyClaimStreak: { type: Number, default: 0, min: 0 },
+  lastDailyClaim: { type: Date, default: null },
+  nextDailyClaimAmount: { type: Number, default: 1000 },
+
   // Referral System
   referral: { type: String, default: null, trim: true },
   referralPoints: { type: Number, default: 0, min: 0 },
@@ -41,7 +46,7 @@ const userSchema = new mongoose.Schema({
 
   // Hug Points System with high precision
   hugPoints: { 
-    type: mongoose.Schema.Types.Decimal128, 
+    type: mongoose.Schema.Types.Decimal128,
     default: 0,
     get: (v) => v ? Number(parseFloat(v.toString()).toFixed(4)) : 0
   },
@@ -79,6 +84,81 @@ userSchema.methods.updateLevel = function() {
       break;
     }
   }
+};
+
+// Daily Claim Methods
+userSchema.methods.calculateDailyClaimAmount = function() {
+  const streakWeek = Math.floor(this.dailyClaimStreak / 7);
+  switch(streakWeek) {
+    case 0: // Day 1-7
+      return 1000;
+    case 1: // Day 8-14
+      return 5000;
+    case 2: // Day 15-21
+      return 10000;
+    case 3: // Day 22-28
+      return 20000;
+    case 4: // Day 29-35
+      return 35000;
+    default: // Day 36+
+      return 50000;
+  }
+};
+
+userSchema.methods.canClaimDaily = function() {
+  if (!this.lastDailyClaim) return true;
+  
+  const now = new Date();
+  const lastClaim = new Date(this.lastDailyClaim);
+  
+  // Reset to start of day for both dates
+  now.setHours(0, 0, 0, 0);
+  lastClaim.setHours(0, 0, 0, 0);
+  
+  // Calculate days difference
+  const diffTime = Math.abs(now - lastClaim);
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  // If exactly 1 day has passed, maintain streak
+  // If more than 1 day has passed, streak will be reset
+  return diffDays >= 1;
+};
+
+userSchema.methods.processDailyClaim = function() {
+  const now = new Date();
+  
+  if (!this.canClaimDaily()) {
+    throw new Error('Daily claim not yet available');
+  }
+  
+  // Check if streak should be reset (more than 1 day passed)
+  if (this.lastDailyClaim) {
+    const lastClaim = new Date(this.lastDailyClaim);
+    lastClaim.setHours(0, 0, 0, 0);
+    now.setHours(0, 0, 0, 0);
+    
+    const diffTime = Math.abs(now - lastClaim);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays > 1) {
+      this.dailyClaimStreak = 0;
+    }
+  }
+  
+  // Calculate reward
+  const rewardAmount = this.calculateDailyClaimAmount();
+  
+  // Update user data
+  this.tapPoints += rewardAmount;
+  this.dailyClaimStreak += 1;
+  this.lastDailyClaim = now;
+  this.nextDailyClaimAmount = this.calculateDailyClaimAmount();
+  
+  return {
+    claimedAmount: rewardAmount,
+    newStreak: this.dailyClaimStreak,
+    nextClaimAmount: this.nextDailyClaimAmount
+  };
 };
 
 // Energy Methods
@@ -201,31 +281,19 @@ userSchema.methods.getAllPointsInfo = function() {
       rawPoints: 1
     },
     conversionRate: '1 point = 0.0001 Hug points',
-    upgradeCosts: this.upgradeCosts
+    upgradeCosts: this.upgradeCosts,
+    dailyClaimInfo: {
+      streak: this.dailyClaimStreak,
+      nextClaimAmount: this.nextDailyClaimAmount,
+      canClaim: this.canClaimDaily(),
+      lastClaim: this.lastDailyClaim,
+      streakWeek: Math.floor(this.dailyClaimStreak / 7) + 1,
+      dayInWeek: (this.dailyClaimStreak % 7) + 1
+    }
   };
 };
 
-// Referral Methods
-userSchema.methods.addReferralPoints = function(points, isDirect = true, referredBy = null) {
-  this.referralPoints += points;
-
-  if (isDirect) {
-    this.directReferrals.push({
-      username: referredBy,
-      userId: referredBy,
-      pointsEarned: points
-    });
-  } else {
-    this.indirectReferrals.push({
-      username: referredBy,
-      userId: referredBy,
-      referredBy: referredBy,
-      pointsEarned: points
-    });
-  }
-  return points;
-};
-
+// Leaderboard Static Method
 userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', userId = null) {
   try {
     let query = [];
@@ -244,6 +312,7 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
       maxEnergy: 1,
       directReferrals: 1,
       indirectReferrals: 1,
+      dailyClaimStreak: 1,
       totalReferrals: {
         $add: [
           { $size: "$directReferrals" },
@@ -266,41 +335,21 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
       case 'hourly':
         sortField = { perHour: -1 };
         break;
+      case 'streak':
+        sortField = { dailyClaimStreak: -1 };
+        break;
       default:
         throw new Error('Invalid leaderboard type');
     }
 
-    // First get all users with ranking
     query = [
-      { 
-        $project: projectFields 
-      },
-      { 
-        $sort: sortField 
-      },
+      { $project: projectFields },
+      { $sort: sortField },
       {
         $group: {
           _id: null,
           totalCount: { $sum: 1 },
-          users: { 
-            $push: {
-              userId: "$userId",
-              username: "$username",
-              level: "$level",
-              perTap: "$perTap",
-              perHour: "$perHour",
-              hugPoints: "$hugPoints",
-              tapPoints: "$tapPoints",
-              referralPoints: "$referralPoints",
-              totalPoints: "$totalPoints",
-              energy: "$energy",
-              maxEnergy: "$maxEnergy",
-              directReferrals: "$directReferrals",
-              indirectReferrals: "$indirectReferrals",
-              totalReferrals: "$totalReferrals",
-              lastHourlyAward: "$lastHourlyAward"
-            }
-          }
+          users: { $push: "$$ROOT" }
         }
       },
       {
@@ -312,58 +361,18 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
       {
         $project: {
           _id: 0,
-          userId: "$users.userId",
-          username: "$users.username",
-          level: "$users.level",
-          perTap: "$users.perTap",
-          perHour: "$users.perHour",
-          hugPoints: "$users.hugPoints",
-          tapPoints: "$users.tapPoints",
-          referralPoints: "$users.referralPoints",
-          totalPoints: "$users.totalPoints",
-          energy: "$users.energy",
-          maxEnergy: "$users.maxEnergy",
-          directReferrals: "$users.directReferrals",
-          indirectReferrals: "$users.indirectReferrals",
-          totalReferrals: "$users.totalReferrals",
-          lastHourlyAward: "$users.lastHourlyAward",
           position: { $add: ["$position", 1] },
-          totalCount: 1
+          totalCount: 1,
+          user: "$users"
         }
       }
     ];
 
     const leaderboard = await this.aggregate(query);
-
-    // Find the user's full entry in the leaderboard
-    const userPosition = userId ? leaderboard.find(u => u.userId === userId) : null;
     
-    // Clean up the leaderboard entries
-    const cleanLeaderboard = leaderboard.slice(0, 50).map(user => {
-      const { totalCount, ...userWithoutCount } = user;
-      return userWithoutCount;
-    });
-
     return {
-      leaderboard: cleanLeaderboard,
-      userPosition: userPosition ? {
-        userId: userPosition.userId,
-        username: userPosition.username,
-        level: userPosition.level,
-        perTap: userPosition.perTap,
-        perHour: userPosition.perHour,
-        hugPoints: userPosition.hugPoints,
-        tapPoints: userPosition.tapPoints,
-        referralPoints: userPosition.referralPoints,
-        totalPoints: userPosition.totalPoints,
-        energy: userPosition.energy,
-        maxEnergy: userPosition.maxEnergy,
-        directReferrals: userPosition.directReferrals,
-        indirectReferrals: userPosition.indirectReferrals,
-        totalReferrals: userPosition.totalReferrals,
-        lastHourlyAward: userPosition.lastHourlyAward,
-        position: userPosition.position
-      } : null,
+      leaderboard: leaderboard.slice(0, 50),
+      userPosition: userId ? leaderboard.find(entry => entry.user.userId === userId) : null,
       total: leaderboard.length > 0 ? leaderboard[0].totalCount : 0
     };
   } catch (error) {
