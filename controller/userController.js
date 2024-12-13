@@ -229,6 +229,7 @@ const monitorUserStatus = async (req, res) => {
 };
 
 // Get all points information
+
 const getAllPoints = async (req, res) => {
   const { userId } = req.params;
 
