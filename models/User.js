@@ -9,6 +9,8 @@ const userSchema = new mongoose.Schema({
   energy: { type: Number, default: 1000, min: 0 },
   maxEnergy: { type: Number, default: 1000, min: 1000 },
   lastTapTime: { type: Date, default: Date.now },
+  lastEnergyRefill: { type: Date },
+  totalEnergyRefills: { type: Number, default: 0 },
 
   // Tap Power
   perTap: { type: Number, default: 1, min: 1 },
@@ -42,6 +44,17 @@ const userSchema = new mongoose.Schema({
     referredBy: { type: String, required: true },
     pointsEarned: { type: Number, default: 0, min: 0 },
     joinedAt: { type: Date, default: Date.now }
+  }],
+
+  // Auto Mining System
+  isAutoMining: { type: Boolean, default: false },
+  autoMineStartTime: { type: Date },
+  autoMineDuration: { type: Number, default: 0 }, // in milliseconds
+  pendingAutoMinePoints: { type: Number, default: 0 },
+  lastAutoMineEnd: { type: Date },
+  autoClaimHistory: [{
+    claimTime: { type: Date, default: Date.now },
+    pointsClaimed: { type: Number, default: 0 }
   }],
 
   // Hug Points System with high precision
@@ -111,16 +124,12 @@ userSchema.methods.canClaimDaily = function() {
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   
-  // Reset to start of day for both dates
   now.setHours(0, 0, 0, 0);
   lastClaim.setHours(0, 0, 0, 0);
   
-  // Calculate days difference
   const diffTime = Math.abs(now - lastClaim);
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   
-  // If exactly 1 day has passed, maintain streak
-  // If more than 1 day has passed, streak will be reset
   return diffDays >= 1;
 };
 
@@ -131,7 +140,6 @@ userSchema.methods.processDailyClaim = function() {
     throw new Error('Daily claim not yet available');
   }
   
-  // Check if streak should be reset (more than 1 day passed)
   if (this.lastDailyClaim) {
     const lastClaim = new Date(this.lastDailyClaim);
     lastClaim.setHours(0, 0, 0, 0);
@@ -145,10 +153,8 @@ userSchema.methods.processDailyClaim = function() {
     }
   }
   
-  // Calculate reward
   const rewardAmount = this.calculateDailyClaimAmount();
   
-  // Update user data
   this.tapPoints += rewardAmount;
   this.dailyClaimStreak += 1;
   this.lastDailyClaim = now;
@@ -169,6 +175,21 @@ userSchema.methods.getCurrentEnergy = function() {
   return Math.min(this.energy + energyRegenerated, this.maxEnergy);
 };
 
+userSchema.methods.refillEnergy = function() {
+  const now = new Date();
+  
+  if (this.lastEnergyRefill && now - this.lastEnergyRefill < 300000) {
+    throw new Error('Energy refill is on cooldown');
+  }
+  
+  this.energy = this.maxEnergy;
+  this.lastEnergyRefill = now;
+  this.totalEnergyRefills++;
+  
+  return this.energy;
+};
+
+// Tap Methods
 userSchema.methods.handleTap = function() {
   const currentEnergy = this.getCurrentEnergy();
   if (currentEnergy > 0) {
@@ -192,6 +213,62 @@ userSchema.methods.awardHourlyPoints = function() {
     return pointsAwarded;
   }
   return 0;
+};
+
+// Auto Mining Methods
+userSchema.methods.startAutoMine = function(duration = 7200000) {
+  this.isAutoMining = true;
+  this.autoMineStartTime = new Date();
+  this.autoMineDuration = duration;
+  this.pendingAutoMinePoints = 0;
+  return true;
+};
+
+userSchema.methods.processAutoMine = function() {
+  if (!this.isAutoMining) return 0;
+  
+  const now = new Date();
+  const elapsedTime = now - this.autoMineStartTime;
+  
+  if (elapsedTime >= this.autoMineDuration) {
+    this.isAutoMining = false;
+    this.autoMineStartTime = null;
+    this.lastAutoMineEnd = now;
+    return 0;
+  }
+  
+  const currentEnergy = this.getCurrentEnergy();
+  const possibleTaps = Math.min(currentEnergy, 100);
+  let totalPointsEarned = 0;
+  
+  for (let i = 0; i < possibleTaps; i++) {
+    try {
+      const pointsEarned = this.handleTap();
+      totalPointsEarned += pointsEarned;
+    } catch (error) {
+      break;
+    }
+  }
+  
+  this.pendingAutoMinePoints += totalPointsEarned;
+  return totalPointsEarned;
+};
+
+userSchema.methods.claimAutoMineRewards = function() {
+  if (this.pendingAutoMinePoints <= 0) {
+    throw new Error('No pending rewards to claim');
+  }
+  
+  const pointsToClaim = this.pendingAutoMinePoints;
+  this.tapPoints += pointsToClaim;
+  this.pendingAutoMinePoints = 0;
+  
+  this.autoClaimHistory.push({
+    claimTime: new Date(),
+    pointsClaimed: pointsToClaim
+  });
+  
+  return pointsToClaim;
 };
 
 // Upgrade Methods
@@ -246,20 +323,6 @@ userSchema.methods.convertToHugPoints = function(pointsToConvert) {
   return newHugPoints;
 };
 
-userSchema.methods.getHugPointsValue = function() {
-  const totalAvailablePoints = this.tapPoints + this.referralPoints;
-  const convertibleHugPoints = Number((totalAvailablePoints / 10000).toFixed(4));
-  
-  return {
-    hugPoints: Number(parseFloat(this.hugPoints.toString()).toFixed(4)),
-    availablePointsForConversion: convertibleHugPoints,
-    minimumConversionAmount: 0.0001,
-    minimumPointsNeeded: 1,
-    totalPointsRemaining: totalAvailablePoints,
-    conversionRate: '1 point = 0.0001 Hug points'
-  };
-};
-
 // Information Methods
 userSchema.methods.getAllPointsInfo = function() {
   return {
@@ -289,6 +352,17 @@ userSchema.methods.getAllPointsInfo = function() {
       lastClaim: this.lastDailyClaim,
       streakWeek: Math.floor(this.dailyClaimStreak / 7) + 1,
       dayInWeek: (this.dailyClaimStreak % 7) + 1
+    },
+    autoMine: {
+      isActive: this.isAutoMining,
+      pendingPoints: this.pendingAutoMinePoints,
+      startTime: this.autoMineStartTime,
+      endTime: this.isAutoMining ? 
+        new Date(this.autoMineStartTime.getTime() + this.autoMineDuration) : 
+        this.lastAutoMineEnd,
+      timeRemaining: this.isAutoMining ? 
+        Math.max(0, this.autoMineDuration - (Date.now() - this.autoMineStartTime)) : 0,
+      claimHistory: this.autoClaimHistory
     }
   };
 };
@@ -371,7 +445,7 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
     const leaderboard = await this.aggregate(query);
     
     return {
-      leaderboard: leaderboard.slice(0, 50),
+      leaderboard: leaderboard.slice(0, 50), // Top 50 users
       userPosition: userId ? leaderboard.find(entry => entry.user.userId === userId) : null,
       total: leaderboard.length > 0 ? leaderboard[0].totalCount : 0
     };
@@ -380,6 +454,35 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
   }
 };
 
+// Virtual fields (if needed)
+userSchema.virtual('totalReferrals').get(function() {
+  return this.directReferrals.length + this.indirectReferrals.length;
+});
+
+userSchema.virtual('nextLevelThreshold').get(function() {
+  const levelThresholds = [0, 25000, 50000, 300000, 500000, 1000000, 10000000, 100000000, 500000000, 1000000000];
+  for (let i = 0; i < levelThresholds.length; i++) {
+    if (this.totalPoints < levelThresholds[i]) {
+      return levelThresholds[i];
+    }
+  }
+  return levelThresholds[levelThresholds.length - 1];
+});
+
+userSchema.virtual('pointsToNextLevel').get(function() {
+  return this.nextLevelThreshold - this.totalPoints;
+});
+
+// Index configurations for performance
+userSchema.index({ userId: 1 });
+userSchema.index({ username: 1 });
+userSchema.index({ totalPoints: -1 });
+userSchema.index({ hugPoints: -1 });
+userSchema.index({ dailyClaimStreak: -1 });
+userSchema.index({ perHour: -1 });
+
+// Create the model
 const User = mongoose.model('User', userSchema);
 
+// Export the model
 module.exports = User;

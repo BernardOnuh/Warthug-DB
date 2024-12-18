@@ -1,4 +1,3 @@
-// routes/index.js
 const express = require('express');
 const router = express.Router();
 
@@ -15,6 +14,9 @@ const {
   convertToHugPoints,
   claimDaily,
   getDailyClaimInfo,
+  startAutoMine,
+  claimAutoMineRewards,
+  refillEnergy
 } = require('../controller/userController');
 
 const taskController = require('../controller/taskController');
@@ -29,12 +31,23 @@ router.put('/hourly', awardHourlyPoints);
 router.put('/upgrade/tap-power', upgradeTapPower);
 router.put('/upgrade/energy-limit', upgradeEnergyLimit);
 
+// Auto mining system
+router.post('/auto-mine/start', startAutoMine);
+router.post('/auto-mine/claim', claimAutoMineRewards);
+
+// Energy management
+router.post('/energy/refill', refillEnergy);
+
 // User information and stats
 router.get('/referrals/:userId', getReferralDetails);
 router.get('/leaderboard', getLeaderboard);
 router.get('/status/:userId', monitorUserStatus);
 router.get('/points/:userId', getAllPoints);
 router.post('/convert-hug-points', convertToHugPoints);
+
+// Daily claim system
+router.post('/claim-daily', claimDaily);
+router.get('/daily-claim-info/:userId', getDailyClaimInfo);
 
 // TASK ROUTES
 // Public task endpoints
@@ -51,8 +64,5 @@ router.post('/tasks/create', taskController.createTask);
 router.post('/tasks/batch', taskController.createMultipleTasks);
 router.put('/tasks/update/:taskId', taskController.updateTask);
 router.delete('/tasks/delete/:taskId', taskController.deleteTask);
-
-router.post('/claim-daily', claimDaily);
-router.get('/daily-claim-info/:userId', getDailyClaimInfo);
 
 module.exports = router;

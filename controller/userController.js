@@ -29,7 +29,7 @@ const registerUser = async (req, res) => {
       });
       await referrer.save();
 
-      // Handle indirect referrals (if any)
+      // Handle indirect referrals
       if (referrer.referral) {
         const indirectReferrer = await User.findOne({ username: referrer.referral });
         if (indirectReferrer) {
@@ -44,7 +44,6 @@ const registerUser = async (req, res) => {
         }
       }
 
-      // Set referral for the new user
       newUser.referral = referral;
     }
 
@@ -66,9 +65,14 @@ const handleTap = async (req, res) => {
     }
 
     try {
-      user.handleTap();
+      const pointsEarned = user.handleTap();
       await user.save();
-      res.status(200).json({ message: 'Tap successful', energy: user.energy, tapPoints: user.tapPoints });
+      res.status(200).json({ 
+        message: 'Tap successful', 
+        energy: user.energy, 
+        tapPoints: user.tapPoints,
+        pointsEarned
+      });
     } catch (error) {
       res.status(400).json({ message: error.message });
     }
@@ -87,10 +91,14 @@ const awardHourlyPoints = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    user.awardHourlyPoints();
+    const pointsAwarded = user.awardHourlyPoints();
     await user.save();
 
-    res.status(200).json({ message: 'Hourly points awarded', tapPoints: user.tapPoints });
+    res.status(200).json({ 
+      message: 'Hourly points awarded', 
+      tapPoints: user.tapPoints,
+      pointsAwarded 
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -109,7 +117,12 @@ const upgradeTapPower = async (req, res) => {
     try {
       user.upgradeTapPower();
       await user.save();
-      res.status(200).json({ message: 'Tap power upgraded', perTap: user.perTap, tapPoints: user.tapPoints });
+      res.status(200).json({ 
+        message: 'Tap power upgraded', 
+        perTap: user.perTap, 
+        tapPoints: user.tapPoints,
+        nextUpgradeCost: user.upgradeCosts.perTap
+      });
     } catch (error) {
       res.status(400).json({ message: error.message });
     }
@@ -131,10 +144,150 @@ const upgradeEnergyLimit = async (req, res) => {
     try {
       user.upgradeEnergyLimit();
       await user.save();
-      res.status(200).json({ message: 'Energy limit upgraded', maxEnergy: user.maxEnergy, tapPoints: user.tapPoints });
+      res.status(200).json({ 
+        message: 'Energy limit upgraded', 
+        maxEnergy: user.maxEnergy, 
+        tapPoints: user.tapPoints,
+        nextUpgradeCost: user.upgradeCosts.maxEnergy
+      });
     } catch (error) {
       res.status(400).json({ message: error.message });
     }
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Start Auto Mining
+const startAutoMine = async (req, res) => {
+  const { userId, duration } = req.body;
+  
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    try {
+      user.startAutoMine(duration || 7200000); // Default 2 hours
+      await user.save();
+      
+      res.status(200).json({
+        message: 'Auto mining started successfully',
+        autoMine: {
+          isActive: true,
+          startTime: user.autoMineStartTime,
+          endTime: new Date(user.autoMineStartTime.getTime() + user.autoMineDuration),
+          duration: user.autoMineDuration,
+          pendingPoints: 0
+        },
+        energy: user.getCurrentEnergy(),
+        maxEnergy: user.maxEnergy
+      });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Claim Auto Mine Rewards
+const claimAutoMineRewards = async (req, res) => {
+  const { userId } = req.body;
+  
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    try {
+      const pointsClaimed = user.claimAutoMineRewards();
+      await user.save();
+      
+      res.status(200).json({
+        message: 'Auto mine rewards claimed successfully',
+        pointsClaimed,
+        newTapPoints: user.tapPoints,
+        totalPoints: user.totalPoints,
+        autoMine: {
+          isActive: user.isAutoMining,
+          pendingPoints: 0,
+          continueMining: true,
+          timeRemaining: user.isAutoMining ? 
+            Math.max(0, user.autoMineDuration - (Date.now() - user.autoMineStartTime)) : 0
+        }
+      });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Monitor User Status
+const monitorUserStatus = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.isAutoMining) {
+      user.processAutoMine();
+    }
+
+    user.energy = user.getCurrentEnergy();
+    user.lastActive = Date.now();
+    await user.save();
+
+    res.status(200).json({
+      username: user.username,
+      userId: user.userId,
+      energy: user.energy,
+      maxEnergy: user.maxEnergy,
+      perTap: user.perTap,
+      tapPoints: user.tapPoints,
+      perHour: user.perHour,
+      level: user.level,
+      totalPoints: user.totalPoints,
+      referralPoints: user.referralPoints,
+      lastHourlyAward: user.lastHourlyAward,
+      hugPoints: Number(parseFloat(user.hugPoints.toString()).toFixed(4)),
+      upgradeCosts: {
+        tapPowerCost: user.upgradeCosts.perTap,
+        energyLimitCost: user.upgradeCosts.maxEnergy,
+        energyUpgradeCost: 0
+      },
+      dailyClaimInfo: {
+        streak: user.dailyClaimStreak,
+        nextClaimAmount: user.nextDailyClaimAmount,
+        canClaim: user.canClaimDaily(),
+        lastClaim: user.lastDailyClaim,
+        streakWeek: Math.floor(user.dailyClaimStreak / 7) + 1,
+        dayInWeek: (user.dailyClaimStreak % 7) + 1
+      },
+      autoMine: {
+        isActive: user.isAutoMining,
+        startTime: user.autoMineStartTime,
+        endTime: user.isAutoMining ? 
+          new Date(user.autoMineStartTime.getTime() + user.autoMineDuration) : 
+          user.lastAutoMineEnd,
+        timeRemaining: user.isAutoMining ? 
+          Math.max(0, user.autoMineDuration - (Date.now() - user.autoMineStartTime)) : 0,
+        pendingPoints: user.pendingAutoMinePoints,
+        claimHistory: user.autoClaimHistory
+      },
+      referralInfo: {
+        directCount: user.directReferrals.length,
+        indirectCount: user.indirectReferrals.length,
+        totalReferralPoints: user.referralPoints
+      }
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -168,7 +321,10 @@ const getReferralDetails = async (req, res) => {
       myReferralCode: user.username
     };
 
-    res.status(200).json({ message: 'Referral details retrieved successfully', referralDetails });
+    res.status(200).json({ 
+      message: 'Referral details retrieved successfully', 
+      referralDetails 
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
@@ -195,41 +351,7 @@ const getLeaderboard = async (req, res) => {
   }
 };
 
-
-// Monitor User Status
-const monitorUserStatus = async (req, res) => {
-  const { userId } = req.params;
-
-  try {
-    const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-
-    user.energy = user.getCurrentEnergy();
-    user.lastActive = Date.now();
-    await user.save();
-
-    res.status(200).json({
-      username: user.username,
-      userId: user.userId,
-      energy: user.energy,
-      maxEnergy: user.maxEnergy,
-      perTap: user.perTap,
-      tapPoints: user.tapPoints,
-      perHour: user.perHour,
-      level: user.level,
-      totalPoints: user.totalPoints,
-      referralPoints: user.referralPoints,
-      lastHourlyAward: user.lastHourlyAward
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
-  }
-};
-
-// Get all points information
-
+// Get All Points Info
 const getAllPoints = async (req, res) => {
   const { userId } = req.params;
 
@@ -249,7 +371,7 @@ const getAllPoints = async (req, res) => {
   }
 };
 
-// Convert to Hug points
+// Convert to Hug Points
 const convertToHugPoints = async (req, res) => {
   const { userId, pointsToConvert } = req.body;
 
@@ -276,6 +398,7 @@ const convertToHugPoints = async (req, res) => {
   }
 };
 
+// Daily Claim System
 const claimDaily = async (req, res) => {
   const { userId } = req.body;
 
@@ -307,6 +430,7 @@ const claimDaily = async (req, res) => {
   }
 };
 
+// Get Daily Claim Info
 const getDailyClaimInfo = async (req, res) => {
   const { userId } = req.params;
 
@@ -341,18 +465,93 @@ const getDailyClaimInfo = async (req, res) => {
   }
 };
 
+// Energy Refill
+const refillEnergy = async (req, res) => {
+  const { userId } = req.body;
+  
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    try {
+      const newEnergy = user.refillEnergy();
+      await user.save();
+      
+      res.status(200).json({
+        message: 'Energy refilled successfully',
+        username: user.username,
+        currentEnergy: newEnergy,
+        maxEnergy: user.maxEnergy,
+        totalRefills: user.totalEnergyRefills,
+        lastRefill: user.lastEnergyRefill,
+        cooldownEnds: new Date(user.lastEnergyRefill.getTime() + 300000) // 5 minutes cooldown
+      });
+    } catch (error) {
+      res.status(400).json({ message: error.message });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
 
+// Get Auto Mine Status
+const getAutoMineStatus = async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const now = new Date();
+    const recentClaims = user.autoClaimHistory
+      .filter(claim => (now - claim.claimTime) <= (60 * 60 * 1000))
+      .map(claim => ({
+        time: claim.claimTime,
+        points: claim.pointsClaimed
+      }));
+
+    res.status(200).json({
+      message: 'Auto mine status retrieved successfully',
+      data: {
+        isActive: user.isAutoMining,
+        startTime: user.autoMineStartTime,
+        endTime: user.isAutoMining ? 
+          new Date(user.autoMineStartTime.getTime() + user.autoMineDuration) : 
+          user.lastAutoMineEnd,
+        timeRemaining: user.isAutoMining ? 
+          Math.max(0, user.autoMineDuration - (now - user.autoMineStartTime)) : 0,
+        pendingPoints: user.pendingAutoMinePoints,
+        recentClaims,
+        totalClaimsToday: user.autoClaimHistory.filter(claim => 
+          claim.claimTime.toDateString() === now.toDateString()
+        ).length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Export all controller functions
 module.exports = {
   registerUser,
   handleTap,
   awardHourlyPoints,
   upgradeTapPower,
   upgradeEnergyLimit,
+  startAutoMine,
+  claimAutoMineRewards,
+  getAutoMineStatus,
+  monitorUserStatus,
+  refillEnergy,
   getReferralDetails,
   getLeaderboard,
-  monitorUserStatus,
   getAllPoints,
   convertToHugPoints,
   claimDaily,
-  getDailyClaimInfo,
+  getDailyClaimInfo
 };
