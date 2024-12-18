@@ -227,7 +227,6 @@ const claimAutoMineRewards = async (req, res) => {
   }
 };
 
-// Monitor User Status
 const monitorUserStatus = async (req, res) => {
   const { userId } = req.params;
 
@@ -237,14 +236,25 @@ const monitorUserStatus = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Process auto mining if active
     if (user.isAutoMining) {
-      user.processAutoMine();
+      // Process and auto-claim if it's been an hour
+      const pendingPoints = user.processAutoMine();
+      if (pendingPoints > 0) {
+        try {
+          const claimedPoints = user.claimAutoMineRewards();
+          user.tapPoints += claimedPoints;
+        } catch (error) {
+          console.error('Auto-claim error:', error);
+        }
+      }
     }
 
     user.energy = user.getCurrentEnergy();
     user.lastActive = Date.now();
     await user.save();
 
+    // Rest of the response remains the same
     res.status(200).json({
       username: user.username,
       userId: user.userId,

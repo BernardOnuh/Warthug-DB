@@ -224,12 +224,14 @@ userSchema.methods.startAutoMine = function(duration = 7200000) {
   return true;
 };
 
+
 userSchema.methods.processAutoMine = function() {
   if (!this.isAutoMining) return 0;
   
   const now = new Date();
   const elapsedTime = now - this.autoMineStartTime;
   
+  // Check if mining duration is complete
   if (elapsedTime >= this.autoMineDuration) {
     this.isAutoMining = false;
     this.autoMineStartTime = null;
@@ -237,21 +239,26 @@ userSchema.methods.processAutoMine = function() {
     return 0;
   }
   
-  const currentEnergy = this.getCurrentEnergy();
-  const possibleTaps = Math.min(currentEnergy, 100);
-  let totalPointsEarned = 0;
+  // Check if it's time for hourly claim
+  const lastClaimTime = this.autoClaimHistory.length > 0 
+    ? this.autoClaimHistory[this.autoClaimHistory.length - 1].claimTime 
+    : this.autoMineStartTime;
   
-  for (let i = 0; i < possibleTaps; i++) {
-    try {
-      const pointsEarned = this.handleTap();
-      totalPointsEarned += pointsEarned;
-    } catch (error) {
-      break;
-    }
+  const hoursSinceLastClaim = (now - lastClaimTime) / (60 * 60 * 1000);
+  
+  if (hoursSinceLastClaim >= 1) {
+    // Calculate points for the hour (500 points per hour)
+    const pointsEarned = 500;
+    this.pendingAutoMinePoints += pointsEarned;
+    
+    // Add to claim history
+    this.autoClaimHistory.push({
+      claimTime: now,
+      pointsClaimed: pointsEarned
+    });
   }
   
-  this.pendingAutoMinePoints += totalPointsEarned;
-  return totalPointsEarned;
+  return this.pendingAutoMinePoints;
 };
 
 userSchema.methods.claimAutoMineRewards = function() {
