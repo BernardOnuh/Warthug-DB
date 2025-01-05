@@ -21,11 +21,11 @@ const registerUser = async (req, res) => {
       }
 
       // Add points to referrer
-      referrer.referralPoints += 500;
+      referrer.referralPoints += 1000000;
       referrer.directReferrals.push({
         username,
         userId,
-        pointsEarned: 500
+        pointsEarned: 1000000
       });
       await referrer.save();
 
