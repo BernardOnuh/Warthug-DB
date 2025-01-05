@@ -25,21 +25,35 @@ exports.getTasksForUser = async (req, res) => {
     // Get all active tasks
     const tasks = await Task.find({ isActive: true });
     
-    // Process tasks with completion status
-    const processedTasks = tasks.map(task => {
+    // Process and filter tasks
+    const processedTasks = tasks.reduce((acc, task) => {
       const lastCompletion = completions.find(c => c.taskId.equals(task._id));
+      const isCompleted = !!lastCompletion;
+
+      // Skip completed non-repeatable tasks
+      if (isCompleted && !task.isRepeatable) {
+        return acc;
+      }
+
       const canComplete = task.canBeCompletedBy(user);
       const timeUntilAvailable = task.getTimeUntilAvailable(user, lastCompletion?.completedAt);
 
-      return {
-        ...task.toObject(),
-        isCompleted: !!lastCompletion,
-        canComplete,
-        lastCompletedAt: lastCompletion?.completedAt,
-        timeUntilAvailable,
-        userEligible: user.level >= task.requiredLevel && user.totalPoints >= task.requiredPoints
-      };
-    });
+      // Only add tasks that are either:
+      // 1. Not completed
+      // 2. Repeatable and available (cooldown passed)
+      if (!isCompleted || (task.isRepeatable && timeUntilAvailable === 0)) {
+        acc.push({
+          ...task.toObject(),
+          isCompleted,
+          canComplete,
+          lastCompletedAt: lastCompletion?.completedAt,
+          timeUntilAvailable,
+          userEligible: user.level >= task.requiredLevel && user.totalPoints >= task.requiredPoints
+        });
+      }
+
+      return acc;
+    }, []);
 
     res.json({ 
       success: true, 
