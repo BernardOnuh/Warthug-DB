@@ -128,17 +128,41 @@ userSchema.index({ hugPoints: -1 });
 userSchema.index({ dailyClaimStreak: -1 });
 userSchema.index({ perHour: -1 });
 
-// Pre-save middleware
+// Update pre-save middleware
 userSchema.pre('save', function(next) {
-    this.totalPoints = this.tapPoints + this.referralPoints;
-    this.lastActive = new Date();
-    this.updateLevel();
-    next();
-  });
+  this.totalPoints = (this.tapPoints || 0) + (this.referralPoints || 0);
+  this.lastActive = new Date();
+  
+  // Ensure required fields have defaults
+  this.energy = this.energy || 0;
+  this.maxEnergy = this.maxEnergy || 1000;
+  this.perTap = this.perTap || 1;
+  this.tapPoints = this.tapPoints || 0;
+  this.perHour = this.perHour || 0;
+  this.level = this.level || 0;
+  this.totalPoints = this.totalPoints || 0;
+  this.referralPoints = this.referralPoints || 0;
+  
+  this.updateLevel();
+  next();
+});
   
   // Card System Methods
   userSchema.methods.upgradeCard = async function(section, cardName) {
-    const card = this.cards.get(section)?.get(cardName);
+    if (!this.cards || !this.cards.get(section)) {
+      throw new Error(`Invalid card section: ${section}`);
+    }
+  
+    const sectionCards = this.cards.get(section);
+    const card = sectionCards.get(cardName);
+    
+    if (!card) {
+      throw new Error(`Card not found: ${cardName}`);
+    }
+  
+    if (this.level < card.requiredLevel) {
+      throw new Error('Level requirement not met');
+    }
     
     if (!card) throw new Error('Card not found');
     if (this.level < card.requiredLevel) throw new Error('Level requirement not met');
@@ -172,12 +196,33 @@ userSchema.pre('save', function(next) {
     return card;
   };
   
-  userSchema.methods.getCardInfo = function(section, cardName) {
-    const card = this.cards.get(section)?.get(cardName);
-    if (!card) return null;
+
+  userSchema.methods.initializeCards = function() {
+    if (!this.cards) {
+      this.cards = {
+        finance: new Map(),
+        predators: new Map(),
+        hogPower: new Map()
+      };
+    }
+  };
   
-    const nextUpgradeCount = card.upgradeCount + 1;
-    const currentCooldown = card.currentCooldown || card.baseCooldown;
+  userSchema.methods.getCardInfo = function(section, cardName) {
+    if (!this.cards || !this.cards.get(section)) {
+      return null;
+    }
+  
+    const sectionCards = this.cards.get(section);
+    const card = sectionCards.get(cardName);
+    
+    if (!card) {
+      return null;
+    }
+  
+    // Calculate values with default fallbacks
+    const nextUpgradeCount = (card.upgradeCount || 0) + 1;
+    const currentCooldown = card.currentCooldown || card.baseCooldown || 0;
+    
     let cooldownRemaining = 0;
     let cooldownEnds = null;
   
@@ -190,13 +235,15 @@ userSchema.pre('save', function(next) {
   
     return {
       ...card.toObject(),
-      nextPrice: Math.floor(card.basePrice * Math.pow(card.priceIncreaseRate, nextUpgradeCount)),
-      nextPerHour: Math.floor(card.perHourIncrease * Math.pow(card.perHourIncreaseRate, nextUpgradeCount)),
-      nextCooldown: Math.floor(card.baseCooldown * Math.pow(card.cooldownIncreaseRate, nextUpgradeCount)),
+      nextPrice: Math.floor(card.basePrice * Math.pow(card.priceIncreaseRate || 1, nextUpgradeCount)),
+      nextPerHour: Math.floor(card.perHourIncrease * Math.pow(card.perHourIncreaseRate || 1, nextUpgradeCount)),
+      nextCooldown: Math.floor(card.baseCooldown * Math.pow(card.cooldownIncreaseRate || 1, nextUpgradeCount)),
       currentCooldown,
       cooldownRemaining,
       cooldownEnds,
-      canUpgrade: cooldownRemaining === 0 && this.level >= card.requiredLevel && this.tapPoints >= card.currentPrice,
+      canUpgrade: cooldownRemaining === 0 && 
+                  this.level >= (card.requiredLevel || 0) && 
+                  this.tapPoints >= (card.currentPrice || 0),
       timeToNextUpgrade: cooldownRemaining > 0 ? Math.ceil(cooldownRemaining / (60 * 1000)) : 0
     };
   };
@@ -626,11 +673,11 @@ userSchema.pre('save', function(next) {
     }
   };
   
-  // Virtual fields
+  // Virtual fields  
   userSchema.virtual('totalReferrals').get(function() {
-    return this.directReferrals.length + this.indirectReferrals.length;
+    return (this.directReferrals?.length || 0) + (this.indirectReferrals?.length || 0);
   });
-  
+
   userSchema.virtual('nextLevelThreshold').get(function() {
     const levelThresholds = [0, 25000, 50000, 300000, 500000, 1000000, 10000000, 100000000, 500000000, 1000000000];
     for (let i = 0; i < levelThresholds.length; i++) {
