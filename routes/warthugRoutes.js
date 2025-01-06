@@ -25,7 +25,8 @@ const {
   createCard,
   getAllCards,
   upgradeCard,
-  getCardDetails
+  getCardDetails,
+  getAllCardsGlobal
 } = require('../controller/cardController');
 
 const taskController = require('../controller/taskController');
@@ -60,7 +61,8 @@ router.get('/daily-claim-info/:userId', getDailyClaimInfo);
 
 // CARD SYSTEM ROUTES
 // Card management
-router.post('/cards/create', createCard);              // Create a new card
+router.post('/cards/create', createCard);
+router.get('/cards', getAllCardsGlobal);               // Create a new card
 router.get('/cards/:userId', getAllCards);             // Get all cards for a user
 router.post('/cards/upgrade', upgradeCard);            // Upgrade a specific card
 router.get('/cards/:userId/:section/:cardName', getCardDetails);  // Get specific card details

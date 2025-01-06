@@ -199,6 +199,41 @@ const getCardDetails = async (req, res) => {
   }
 };
 
+const getAllCardsGlobal = async (req, res) => {
+  try {
+    const cardsInfo = {};
+    
+    // Process each section
+    ['finance', 'predators', 'hogPower'].forEach(section => {
+      cardsInfo[section] = {};
+      
+      // Get all cards in this section
+      const sectionCards = User.schema.path(`cards.${section}`).options.type.of.obj;
+      Object.entries(sectionCards).forEach(([cardName, cardSchema]) => {
+        if (cardSchema.default) {
+          cardsInfo[section][cardName] = {
+            ...cardSchema.default,
+            id: cardName
+          };
+        }
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Cards retrieved successfully',
+      cards: cardsInfo
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
 // Helper function to validate image URL
 function isValidImageUrl(url) {
   if (!url) return false;
@@ -228,5 +263,6 @@ module.exports = {
   createCard,
   getAllCards,
   upgradeCard,
-  getCardDetails
+  getCardDetails,
+  getAllCardsGlobal
 };
