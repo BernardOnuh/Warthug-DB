@@ -1,7 +1,37 @@
-// controllers/cardController.js
 const User = require('../models/User');
 
-// Create new card
+/**
+ * Validates image URL format and extension
+ * @param {string} url - The URL to validate
+ * @returns {boolean} - Whether URL is valid
+ */
+function isValidImageUrl(url) {
+  if (!url) return false;
+  
+  try {
+    new URL(url);
+  } catch {
+    return false;
+  }
+
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
+  return imageExtensions.some(ext => url.toLowerCase().endsWith(ext));
+}
+
+/**
+ * Calculates time remaining until next upgrade
+ */
+function getTimeUntilNextUpgrade(lastUpgradeTime, cooldownMinutes) {
+  if (!lastUpgradeTime) return 0;
+  
+  const cooldownMs = cooldownMinutes * 60 * 1000;
+  const timeSinceUpgrade = Date.now() - new Date(lastUpgradeTime).getTime();
+  return Math.max(0, cooldownMs - timeSinceUpgrade);
+}
+
+/**
+ * Create new card
+ */
 const createCard = async (req, res) => {
   const { section, cardData } = req.body;
   
@@ -61,37 +91,38 @@ const createCard = async (req, res) => {
       });
     }
 
-    // Generate card key
     const cardKey = cardData.name.toLowerCase().replace(/\s+/g, '_');
 
-    // Check for existing card
-    const existingCard = await User.findOne({
-      [`cards.${section}.${cardKey}`]: { $exists: true }
-    });
-
-    if (existingCard) {
-      return res.status(400).json({
-        message: 'A card with this name already exists in this section'
-      });
-    }
-
-    // Create new card
+    // Create new card with proper structure
     const newCard = {
-      ...cardData,
+      name: cardData.name,
+      basePrice: cardData.basePrice,
       currentPrice: cardData.basePrice,
+      perHourIncrease: cardData.perHourIncrease,
       currentPerHour: 0,
+      requiredLevel: cardData.requiredLevel,
       upgradeCount: 0,
+      imageUrl: cardData.imageUrl,
       isUnlocked: false,
+      priceIncreaseRate: cardData.priceIncreaseRate,
+      perHourIncreaseRate: cardData.perHourIncreaseRate,
+      baseCooldown: cardData.baseCooldown,
+      cooldownIncreaseRate: cardData.cooldownIncreaseRate,
       currentCooldown: cardData.baseCooldown
     };
 
-    // Add card to all users
-    await User.updateMany(
-      {},
-      { $set: { [`cards.${section}.${cardKey}`]: newCard } }
-    );
+    // Add card to all users using Map operations
+    const users = await User.find();
+    for (const user of users) {
+      if (!user.cards[section]) {
+        user.cards[section] = new Map();
+      }
+      user.cards[section].set(cardKey, newCard);
+      await user.save();
+    }
 
     res.status(201).json({
+      success: true,
       message: 'Card created successfully',
       section,
       cardKey,
@@ -99,31 +130,47 @@ const createCard = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error in createCard:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
-// Get all cards for a user
+/**
+ * Get all cards for a user
+ */
 const getAllCards = async (req, res) => {
   const { userId } = req.params;
 
   try {
     const user = await User.findOne({ userId });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
     }
 
     const cardsInfo = {};
-    
-    // Process each section's cards
     ['finance', 'predators', 'hogPower'].forEach(section => {
       cardsInfo[section] = {};
-      user.cards.get(section)?.forEach((card, cardName) => {
-        cardsInfo[section][cardName] = user.getCardInfo(section, cardName);
-      });
+      const sectionCards = user.cards[section];
+      
+      if (sectionCards && sectionCards instanceof Map) {
+        sectionCards.forEach((card, cardName) => {
+          const cardInfo = user.getCardInfo(section, cardName);
+          if (cardInfo) {
+            cardsInfo[section][cardName] = cardInfo;
+          }
+        });
+      }
     });
 
     res.status(200).json({
+      success: true,
       message: 'Cards retrieved successfully',
       userStats: {
         level: user.level,
@@ -134,28 +181,38 @@ const getAllCards = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error in getAllCards:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
-// Upgrade a card
+/**
+ * Upgrade a specific card
+ */
 const upgradeCard = async (req, res) => {
   const { userId, section, cardName } = req.body;
 
   try {
     const user = await User.findOne({ userId });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
     }
 
     try {
       await user.upgradeCard(section, cardName);
       await user.save();
 
-      // Get updated card info
       const cardInfo = user.getCardInfo(section, cardName);
 
       res.status(200).json({
+        success: true,
         message: 'Card upgraded successfully',
         card: cardInfo,
         userStats: {
@@ -167,56 +224,96 @@ const upgradeCard = async (req, res) => {
       });
 
     } catch (error) {
-      res.status(400).json({ message: error.message });
+      res.status(400).json({ 
+        success: false,
+        message: error.message 
+      });
     }
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error in upgradeCard:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
-// Get specific card details
+/**
+ * Get details for a specific card
+ */
 const getCardDetails = async (req, res) => {
   const { userId, section, cardName } = req.params;
 
   try {
     const user = await User.findOne({ userId });
     if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'User not found' 
+      });
     }
 
     const cardInfo = user.getCardInfo(section, cardName);
     if (!cardInfo) {
-      return res.status(404).json({ message: 'Card not found' });
+      return res.status(404).json({ 
+        success: false,
+        message: 'Card not found' 
+      });
     }
 
     res.status(200).json({
+      success: true,
       message: 'Card details retrieved successfully',
       card: cardInfo
     });
 
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('Error in getCardDetails:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Server error', 
+      error: error.message 
+    });
   }
 };
 
+/**
+ * Get all cards global information
+ */
 const getAllCardsGlobal = async (req, res) => {
   try {
+    // Get a sample user to extract the card structure
+    const sampleUser = await User.findOne();
+    if (!sampleUser) {
+      return res.status(200).json({
+        success: true,
+        message: 'No cards found',
+        cards: {}
+      });
+    }
+
     const cardsInfo = {};
-    
-    // Process each section
     ['finance', 'predators', 'hogPower'].forEach(section => {
       cardsInfo[section] = {};
+      const sectionCards = sampleUser.cards[section];
       
-      // Get all cards in this section
-      const sectionCards = User.schema.path(`cards.${section}`).options.type.of.obj;
-      Object.entries(sectionCards).forEach(([cardName, cardSchema]) => {
-        if (cardSchema.default) {
+      if (sectionCards && sectionCards instanceof Map) {
+        sectionCards.forEach((card, cardName) => {
           cardsInfo[section][cardName] = {
-            ...cardSchema.default,
-            id: cardName
+            name: card.name,
+            basePrice: card.basePrice,
+            perHourIncrease: card.perHourIncrease,
+            requiredLevel: card.requiredLevel,
+            priceIncreaseRate: card.priceIncreaseRate,
+            perHourIncreaseRate: card.perHourIncreaseRate,
+            baseCooldown: card.baseCooldown,
+            cooldownIncreaseRate: card.cooldownIncreaseRate,
+            imageUrl: card.imageUrl,
+            section
           };
-        }
-      });
+        });
+      }
     });
 
     res.status(200).json({
@@ -226,6 +323,7 @@ const getAllCardsGlobal = async (req, res) => {
     });
 
   } catch (error) {
+    console.error('Error in getAllCardsGlobal:', error);
     res.status(500).json({
       success: false,
       message: 'Server error',
@@ -233,31 +331,6 @@ const getAllCardsGlobal = async (req, res) => {
     });
   }
 };
-
-// Helper function to validate image URL
-function isValidImageUrl(url) {
-  if (!url) return false;
-  
-  // Basic URL validation
-  try {
-    new URL(url);
-  } catch {
-    return false;
-  }
-
-  // Check if URL ends with common image extensions
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'];
-  return imageExtensions.some(ext => url.toLowerCase().endsWith(ext));
-}
-
-// Helper function to calculate time until next upgrade
-function getTimeUntilNextUpgrade(lastUpgradeTime, cooldownMinutes) {
-  if (!lastUpgradeTime) return 0;
-  
-  const cooldownMs = cooldownMinutes * 60 * 1000;
-  const timeSinceUpgrade = Date.now() - new Date(lastUpgradeTime).getTime();
-  return Math.max(0, cooldownMs - timeSinceUpgrade);
-}
 
 module.exports = {
   createCard,
