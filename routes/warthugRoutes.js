@@ -1,6 +1,8 @@
+// routes/index.js
 const express = require('express');
 const router = express.Router();
 
+// Import Controllers
 const {
   registerUser,
   handleTap,
@@ -18,6 +20,13 @@ const {
   claimAutoMineRewards,
   refillEnergy
 } = require('../controller/userController');
+
+const {
+  createCard,
+  getAllCards,
+  upgradeCard,
+  getCardDetails
+} = require('../controller/cardController');
 
 const taskController = require('../controller/taskController');
 
@@ -48,6 +57,13 @@ router.post('/convert-hug-points', convertToHugPoints);
 // Daily claim system
 router.post('/claim-daily', claimDaily);
 router.get('/daily-claim-info/:userId', getDailyClaimInfo);
+
+// CARD SYSTEM ROUTES
+// Card management
+router.post('/cards/create', createCard);              // Create a new card
+router.get('/cards/:userId', getAllCards);             // Get all cards for a user
+router.post('/cards/upgrade', upgradeCard);            // Upgrade a specific card
+router.get('/cards/:userId/:section/:cardName', getCardDetails);  // Get specific card details
 
 // TASK ROUTES
 // Public task endpoints
