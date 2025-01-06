@@ -519,6 +519,53 @@ userSchema.pre('save', function(next) {
           ]
         }
       };
+
+      userSchema.statics.getAllGlobalCards = async function() {
+        try {
+          // Get a sample user to extract card templates
+          const sampleUser = await this.findOne();
+          
+          if (!sampleUser) {
+            return {
+              finance: {},
+              predators: {},
+              hogPower: {}
+            };
+          }
+      
+          const cardsInfo = {
+            finance: {},
+            predators: {},
+            hogPower: {}
+          };
+      
+          // Process each section
+          ['finance', 'predators', 'hogPower'].forEach(section => {
+            const sectionCards = sampleUser.cards[section];
+            if (sectionCards) {
+              sectionCards.forEach((card, cardName) => {
+                cardsInfo[section][cardName] = {
+                  name: card.name,
+                  basePrice: card.basePrice,
+                  perHourIncrease: card.perHourIncrease,
+                  requiredLevel: card.requiredLevel,
+                  priceIncreaseRate: card.priceIncreaseRate,
+                  perHourIncreaseRate: card.perHourIncreaseRate,
+                  baseCooldown: card.baseCooldown,
+                  cooldownIncreaseRate: card.cooldownIncreaseRate,
+                  imageUrl: card.imageUrl,
+                  section: section
+                };
+              });
+            }
+          });
+      
+          return cardsInfo;
+        } catch (error) {
+          throw error;
+        }
+      };
+      
   
       // Set sort field based on type
       switch(type) {
