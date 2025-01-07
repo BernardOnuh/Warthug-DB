@@ -188,21 +188,29 @@ const monitorUserStatus = async (req, res) => {
     const formattedHugPoints = user.hugPoints ? 
       Number(parseFloat(user.hugPoints.toString()).toFixed(4)) : 0;
 
+    // Calculate available for conversion
+    const totalPoints = (user.tapPoints || 0) + (user.referralPoints || 0);
+    const pointsConverted = user.pointsConverted || 0;
+    const availableForConversion = Math.max(0, totalPoints - pointsConverted);
+
     res.status(200).json({
       username: user.username,
       userId: user.userId,
       energy: user.energy,
       maxEnergy: user.maxEnergy,
       perTap: user.perTap,
-      tapPoints: user.tapPoints,
+      tapPoints: user.tapPoints || 0,
       perHour: user.perHour,
       level: user.level,
-      totalPoints: user.totalPoints,
-      referralPoints: user.referralPoints,
+      totalPoints: user.totalPoints || 0,
+      referralPoints: user.referralPoints || 0,
       lastHourlyAward: user.lastHourlyAward,
       hugPoints: formattedHugPoints,
-      pointsConverted: user.pointsConverted,
-      availableForConversion: (user.tapPoints + user.referralPoints) - user.pointsConverted,
+      pointsConverted: pointsConverted,
+      availableForConversion: {
+        hugPoints: Number((availableForConversion / 10000).toFixed(4)),
+        rawPoints: availableForConversion
+      },
       upgradeCosts: user.upgradeCosts || {
         tapPowerCost: 0,
         energyLimitCost: 0,

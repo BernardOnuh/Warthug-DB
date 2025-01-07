@@ -46,6 +46,7 @@ const userSchema = new mongoose.Schema({
     // In the userSchema definition
   pointsConverted: { type: Number, default: 0 }, 
   hugPoints: { type: Number, default: 0 },
+  
 
   // Card System
   cards: {
@@ -94,6 +95,11 @@ const userSchema = new mongoose.Schema({
   toObject: { getters: true }
 });
 
+userSchema.methods.getAvailableForConversion = function() {
+  const totalPoints = (this.tapPoints || 0) + (this.referralPoints || 0);
+  const pointsConverted = this.pointsConverted || 0;
+  return Math.max(0, totalPoints - pointsConverted);
+};
 // Card Methods
 userSchema.methods.getCard = function(section, cardName) {
   try {
@@ -494,48 +500,52 @@ userSchema.methods.convertToHugPoints = function(pointsToConvert) {
 
 // Information Methods
 userSchema.methods.getAllPointsInfo = function() {
-  const totalPoints = this.tapPoints + this.referralPoints;
-  const availableForConversion = totalPoints - this.pointsConverted;
-  
+  // Ensure all base values have defaults
+  const tapPoints = this.tapPoints || 0;
+  const referralPoints = this.referralPoints || 0;
+  const pointsConverted = this.pointsConverted || 0;
+  const totalPoints = tapPoints + referralPoints;
+  const availableForConversion = Math.max(0, totalPoints - pointsConverted);
+  const dailyClaimStreak = this.dailyClaimStreak || 0;
+
   return {
-    tapPoints: this.tapPoints,
-    referralPoints: this.referralPoints,
-    hugPoints: Number(parseFloat(this.hugPoints.toString()).toFixed(4)),
+    tapPoints: tapPoints,
+    referralPoints: referralPoints,
+    hugPoints: Number(parseFloat(this.hugPoints?.toString() || "0").toFixed(4)),
     totalPoints: totalPoints,
-    pointsConverted: this.pointsConverted,
+    pointsConverted: pointsConverted,
     availableForConversion: {
       hugPoints: Number((availableForConversion / 10000).toFixed(4)),
       rawPoints: availableForConversion
     },
-    perTap: this.perTap,
-    perHour: this.perHour,
+    perTap: this.perTap || 1,
+    perHour: this.perHour || 0,
     energy: this.getCurrentEnergy(),
-    maxEnergy: this.maxEnergy,
-    level: this.level,
+    maxEnergy: this.maxEnergy || 1000,
+    level: this.level || 0,
     minimumConversion: {
       hugPoints: 0.0001,
       rawPoints: 1
     },
     conversionRate: '1 point = 0.0001 Hug points',
-    upgradeCosts: this.upgradeCosts,
     dailyClaimInfo: {
-      streak: this.dailyClaimStreak,
-      nextClaimAmount: this.nextDailyClaimAmount,
+      streak: dailyClaimStreak,
+      nextClaimAmount: this.nextDailyClaimAmount || 0,
       canClaim: this.canClaimDaily(),
       lastClaim: this.lastDailyClaim,
-      streakWeek: Math.floor(this.dailyClaimStreak / 7) + 1,
-      dayInWeek: (this.dailyClaimStreak % 7) + 1
+      streakWeek: Math.floor(dailyClaimStreak / 7) + 1,
+      dayInWeek: (dailyClaimStreak % 7) + 1
     },
     autoMine: {
-      isActive: this.isAutoMining,
-      pendingPoints: this.pendingAutoMinePoints,
+      isActive: this.isAutoMining || false,
+      pendingPoints: this.pendingAutoMinePoints || 0,
       startTime: this.autoMineStartTime,
       endTime: this.isAutoMining ? 
         new Date(this.autoMineStartTime.getTime() + this.autoMineDuration) : 
         this.lastAutoMineEnd,
       timeRemaining: this.isAutoMining ? 
         Math.max(0, this.autoMineDuration - (Date.now() - this.autoMineStartTime)) : 0,
-      claimHistory: this.autoClaimHistory
+      claimHistory: this.autoClaimHistory || []
     }
   };
 };
