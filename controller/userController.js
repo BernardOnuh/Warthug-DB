@@ -397,13 +397,17 @@ const getDailyClaimInfo = async (req, res) => {
     const canClaim = user.canClaimDaily();
     const nextClaimAmount = user.calculateDailyClaimAmount();
     
-    // Calculate next claim time
-    let nextClaimTime = new Date();
+    // Calculate next claim time - set to next day at midnight
+    let nextClaimTime;
     if (user.lastDailyClaim) {
-      nextClaimTime = new Date(user.lastDailyClaim.getTime() + 24 * 60 * 60 * 1000);
+      const lastClaim = new Date(user.lastDailyClaim);
+      nextClaimTime = new Date(lastClaim);
+      nextClaimTime.setDate(lastClaim.getDate() + 1);
+      nextClaimTime.setHours(0, 0, 0, 0);
     } else {
-      // If no previous claim, set to next midnight
-      nextClaimTime.setHours(24, 0, 0, 0);
+      nextClaimTime = new Date();
+      nextClaimTime.setDate(nextClaimTime.getDate() + 1);
+      nextClaimTime.setHours(0, 0, 0, 0);
     }
 
     // Calculate streak info
@@ -424,7 +428,7 @@ const getDailyClaimInfo = async (req, res) => {
         nextClaimTime: nextClaimTime.toISOString(),
         streakWeek,
         dayInWeek,
-        timeUntilNextClaim: hoursUntilNextClaim > 0 ? `${hoursUntilNextClaim} hours` : 'Available now',
+        timeUntilNextClaim: `${hoursUntilNextClaim} hours`,
         rewardTiers: {
           'Week 1 (Days 1-7)': 1000,
           'Week 2 (Days 8-14)': 5000,

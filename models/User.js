@@ -297,13 +297,15 @@ userSchema.methods.canClaimDaily = function() {
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   
-  now.setHours(0, 0, 0, 0);
-  lastClaim.setHours(0, 0, 0, 0);
+  // Set both dates to the start of their respective days
+  const lastClaimDay = new Date(lastClaim.getFullYear(), lastClaim.getMonth(), lastClaim.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   
-  const diffTime = Math.abs(now - lastClaim);
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  // Calculate days difference
+  const daysDifference = Math.floor((today - lastClaimDay) / (1000 * 60 * 60 * 24));
   
-  return diffDays >= 1;
+  // Can only claim if it's a new day (daysDifference >= 1)
+  return daysDifference >= 1;
 };
 
 userSchema.methods.processDailyClaim = function() {
