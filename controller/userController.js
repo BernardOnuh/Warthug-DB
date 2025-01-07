@@ -394,14 +394,31 @@ const getDailyClaimInfo = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    const currentStreak = user.dailyClaimStreak || 0;
     const canClaim = user.canClaimDaily();
     const nextClaimAmount = user.calculateDailyClaimAmount();
-    const currentStreak = user.dailyClaimStreak;
     
-    let nextClaimTime = null;
-    if (!canClaim && user.lastDailyClaim) {
+    // Always calculate nextClaimTime
+    const now = new Date();
+    let nextClaimTime = new Date(now);
+    
+    if (user.lastDailyClaim) {
+      // Set nextClaimTime to 24 hours after last claim
       nextClaimTime = new Date(user.lastDailyClaim.getTime() + 24 * 60 * 60 * 1000);
+      
+      // If the next claim time has passed, set it to tomorrow at midnight
+      if (nextClaimTime < now) {
+        nextClaimTime = new Date(now);
+        nextClaimTime.setHours(24, 0, 0, 0);
+      }
+    } else {
+      // If no previous claim, set to tomorrow at midnight
+      nextClaimTime.setHours(24, 0, 0, 0);
     }
+
+    // Calculate streak week and day
+    const streakWeek = Math.max(1, Math.floor(currentStreak / 7) + 1);
+    const dayInWeek = Math.max(1, (currentStreak % 7) + 1);
 
     res.status(200).json({
       message: 'Daily claim info retrieved successfully',
@@ -409,9 +426,9 @@ const getDailyClaimInfo = async (req, res) => {
         canClaim,
         currentStreak,
         nextClaimAmount,
-        nextClaimTime,
-        streakWeek: Math.floor(currentStreak / 7) + 1,
-        dayInWeek: (currentStreak % 7) + 1
+        nextClaimTime: nextClaimTime.toISOString(), // Always provide a timestamp
+        streakWeek,
+        dayInWeek
       }
     });
   } catch (error) {
