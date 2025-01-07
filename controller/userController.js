@@ -384,7 +384,6 @@ const claimDaily = async (req, res) => {
   }
 };
 
-// Get Daily Claim Info
 const getDailyClaimInfo = async (req, res) => {
   const { userId } = req.params;
 
@@ -398,27 +397,23 @@ const getDailyClaimInfo = async (req, res) => {
     const canClaim = user.canClaimDaily();
     const nextClaimAmount = user.calculateDailyClaimAmount();
     
-    // Always calculate nextClaimTime
-    const now = new Date();
-    let nextClaimTime = new Date(now);
-    
+    // Calculate next claim time
+    let nextClaimTime = new Date();
     if (user.lastDailyClaim) {
-      // Set nextClaimTime to 24 hours after last claim
       nextClaimTime = new Date(user.lastDailyClaim.getTime() + 24 * 60 * 60 * 1000);
-      
-      // If the next claim time has passed, set it to tomorrow at midnight
-      if (nextClaimTime < now) {
-        nextClaimTime = new Date(now);
-        nextClaimTime.setHours(24, 0, 0, 0);
-      }
     } else {
-      // If no previous claim, set to tomorrow at midnight
+      // If no previous claim, set to next midnight
       nextClaimTime.setHours(24, 0, 0, 0);
     }
 
-    // Calculate streak week and day
+    // Calculate streak info
     const streakWeek = Math.max(1, Math.floor(currentStreak / 7) + 1);
-    const dayInWeek = Math.max(1, (currentStreak % 7) + 1);
+    const dayInWeek = currentStreak % 7 + 1;
+
+    // Calculate time until next claim
+    const now = new Date();
+    const timeUntilNextClaim = Math.max(0, nextClaimTime - now);
+    const hoursUntilNextClaim = Math.ceil(timeUntilNextClaim / (1000 * 60 * 60));
 
     res.status(200).json({
       message: 'Daily claim info retrieved successfully',
@@ -426,13 +421,23 @@ const getDailyClaimInfo = async (req, res) => {
         canClaim,
         currentStreak,
         nextClaimAmount,
-        nextClaimTime: nextClaimTime.toISOString(), // Always provide a timestamp
+        nextClaimTime: nextClaimTime.toISOString(),
         streakWeek,
-        dayInWeek
+        dayInWeek,
+        timeUntilNextClaim: hoursUntilNextClaim > 0 ? `${hoursUntilNextClaim} hours` : 'Available now',
+        rewardTiers: {
+          'Week 1 (Days 1-7)': 1000,
+          'Week 2 (Days 8-14)': 5000,
+          'Week 3 (Days 15-21)': 10000,
+          'Week 4 (Days 22-28)': 20000,
+          'Week 5 (Days 29-35)': 35000,
+          'Week 6+ (Day 36+)': 50000
+        }
       }
     });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+    console.error('Daily claim info error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
