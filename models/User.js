@@ -469,30 +469,36 @@ userSchema.methods.upgradeEnergyLimit = function() {
   throw new Error('Insufficient points to upgrade energy limit');
 };
 
-// Hug Points Methods
 userSchema.methods.convertToHugPoints = function(pointsToConvert) {
   const pointsNum = parseFloat(pointsToConvert);
   
-  if (isNaN(pointsNum)) throw new Error('Invalid points value');
-  if (pointsNum < 1) throw new Error('Minimum 1 point required for conversion');
+  if (isNaN(pointsNum)) {
+    throw new Error('Invalid points value');
+  }
+  if (pointsNum < 1) {
+    throw new Error('Minimum 1 point required for conversion');
+  }
   
   // Calculate available points for conversion
-  const availableForConversion = (this.tapPoints + this.referralPoints) - this.pointsConverted;
+  const totalPoints = this.tapPoints + (this.referralPoints || 0);
+  const pointsConverted = this.pointsConverted || 0;
+  const availableForConversion = Math.max(0, totalPoints - pointsConverted);
+
+  if (availableForConversion <= 0) {
+    throw new Error('No points available for conversion');
+  }
   
   if (pointsNum > availableForConversion) {
-    throw new Error(`Can only convert ${availableForConversion} points. ${this.pointsConverted} points already converted`);
+    throw new Error(`Can only convert ${availableForConversion} points. ${pointsConverted} points already converted`);
   }
 
   const newHugPoints = Number((pointsNum / 10000).toFixed(4));
-  const totalPoints = this.tapPoints + this.referralPoints;
-  const tapPointsRatio = this.tapPoints / totalPoints;
-  const referralPointsRatio = this.referralPoints / totalPoints;
   
   // Update converted points tracker
-  this.pointsConverted += pointsNum;
+  this.pointsConverted = (this.pointsConverted || 0) + pointsNum;
   
-  // Update points (not reducing them anymore)
-  this.hugPoints = Number((parseFloat(this.hugPoints.toString()) + newHugPoints).toFixed(4));
+  // Update hug points
+  this.hugPoints = Number((parseFloat(this.hugPoints?.toString() || "0") + newHugPoints).toFixed(4));
   this.lastConversionTime = new Date();
   
   return newHugPoints;
