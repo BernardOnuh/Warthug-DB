@@ -395,26 +395,18 @@ const getDailyClaimInfo = async (req, res) => {
 
     const currentStreak = user.dailyClaimStreak || 0;
     const canClaim = user.canClaimDaily();
-    const nextClaimAmount = user.calculateDailyClaimAmount();
+    const hasClaimedToday = user.hasClaimedToday();
     
-    // Calculate next claim time - set to next day at midnight
-    let nextClaimTime;
+    // Calculate next claim time
+    let nextClaimTime = new Date();
     if (user.lastDailyClaim) {
-      const lastClaim = new Date(user.lastDailyClaim);
-      nextClaimTime = new Date(lastClaim);
-      nextClaimTime.setDate(lastClaim.getDate() + 1);
-      nextClaimTime.setHours(0, 0, 0, 0);
-    } else {
-      nextClaimTime = new Date();
-      nextClaimTime.setDate(nextClaimTime.getDate() + 1);
-      nextClaimTime.setHours(0, 0, 0, 0);
+      nextClaimTime = new Date(user.lastDailyClaim.getTime() + 24 * 60 * 60 * 1000);
     }
 
     // Calculate streak info
     const streakWeek = Math.max(1, Math.floor(currentStreak / 7) + 1);
     const dayInWeek = currentStreak % 7 + 1;
 
-    // Calculate time until next claim
     const now = new Date();
     const timeUntilNextClaim = Math.max(0, nextClaimTime - now);
     const hoursUntilNextClaim = Math.ceil(timeUntilNextClaim / (1000 * 60 * 60));
@@ -423,12 +415,13 @@ const getDailyClaimInfo = async (req, res) => {
       message: 'Daily claim info retrieved successfully',
       data: {
         canClaim,
+        hasClaimedToday,
         currentStreak,
-        nextClaimAmount,
+        nextClaimAmount: user.calculateDailyClaimAmount(),
         nextClaimTime: nextClaimTime.toISOString(),
         streakWeek,
         dayInWeek,
-        timeUntilNextClaim: `${hoursUntilNextClaim} hours`,
+        timeUntilNextClaim: hasClaimedToday ? `${hoursUntilNextClaim} hours` : 'Available now',
         rewardTiers: {
           'Week 1 (Days 1-7)': 1000,
           'Week 2 (Days 8-14)': 5000,

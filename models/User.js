@@ -342,15 +342,71 @@ userSchema.methods.processDailyClaim = function() {
   };
 };
 
+// Add this to the User Schema
 userSchema.methods.hasClaimedToday = function() {
   if (!this.lastDailyClaim) return false;
   
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   
-  return now.getFullYear() === lastClaim.getFullYear() &&
-         now.getMonth() === lastClaim.getMonth() &&
-         now.getDate() === lastClaim.getDate();
+  return (
+    now.getFullYear() === lastClaim.getFullYear() &&
+    now.getMonth() === lastClaim.getMonth() &&
+    now.getDate() === lastClaim.getDate()
+  );
+};
+
+userSchema.methods.canClaimDaily = function() {
+  if (this.hasClaimedToday()) return false;
+  
+  if (!this.lastDailyClaim) return true;
+  
+  const now = new Date();
+  const lastClaim = new Date(this.lastDailyClaim);
+  const hoursSinceLastClaim = (now - lastClaim) / (1000 * 60 * 60);
+  
+  return hoursSinceLastClaim >= 24;
+};
+
+userSchema.methods.processDailyClaim = function() {
+  if (this.hasClaimedToday()) {
+    throw new Error('Already claimed today. Next claim available in 24 hours.');
+  }
+  
+  const now = new Date();
+  
+  if (this.lastDailyClaim) {
+    const hoursSinceLastClaim = (now - this.lastDailyClaim) / (1000 * 60 * 60);
+    
+    // Reset streak if more than 48 hours have passed
+    if (hoursSinceLastClaim > 48) {
+      this.dailyClaimStreak = 0;
+    }
+  }
+  
+  const rewardAmount = this.calculateDailyClaimAmount();
+  
+  this.tapPoints += rewardAmount;
+  this.dailyClaimStreak = (this.dailyClaimStreak || 0) + 1;
+  this.lastDailyClaim = now;
+  
+  return {
+    claimedAmount: rewardAmount,
+    newStreak: this.dailyClaimStreak,
+    nextClaimAmount: this.calculateDailyClaimAmount()
+  };
+};
+
+userSchema.methods.calculateDailyClaimAmount = function() {
+  const streakWeek = Math.floor((this.dailyClaimStreak || 0) / 7);
+  switch(streakWeek) {
+    case 0: return 1000;  // Days 1-7
+    case 1: return 5000;  // Days 8-14
+    case 2: return 10000; // Days 15-21
+    case 3: return 20000; // Days 22-28
+    case 4: return 35000; // Days 29-35
+    default: return 50000; // Day 36+
+  }
 };
 
 userSchema.methods.canClaimDaily = function() {
