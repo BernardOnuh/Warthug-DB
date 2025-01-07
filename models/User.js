@@ -67,7 +67,9 @@ const userSchema = new mongoose.Schema({
     }
   },
 
-  // Rest of the schema remains the same
+  dailyClaimStreak: { type: Number, default: 0 },
+  lastDailyClaim: { type: Date },
+  nextDailyClaimAmount: { type: Number, default: 1000 },
   
 }, {
   timestamps: true,
@@ -291,120 +293,28 @@ userSchema.methods.calculateDailyClaimAmount = function() {
   }
 };
 
-userSchema.methods.canClaimDaily = function() {
-  if (!this.lastDailyClaim) return true;
-  
-  const now = new Date();
-  const lastClaim = new Date(this.lastDailyClaim);
-  
-  // Set both dates to the start of their respective days
-  const lastClaimDay = new Date(lastClaim.getFullYear(), lastClaim.getMonth(), lastClaim.getDate());
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  
-  // Calculate days difference
-  const daysDifference = Math.floor((today - lastClaimDay) / (1000 * 60 * 60 * 24));
-  
-  // Can only claim if it's a new day (daysDifference >= 1)
-  return daysDifference >= 1;
-};
 
-userSchema.methods.processDailyClaim = function() {
-  const now = new Date();
-  
-  if (this.hasClaimedToday()) {
-    throw new Error('Already claimed today. Next claim available tomorrow.');
-  }
-  
-  if (this.lastDailyClaim) {
-    const lastClaim = new Date(this.lastDailyClaim);
-    lastClaim.setHours(0, 0, 0, 0);
-    now.setHours(0, 0, 0, 0);
-    
-    const diffTime = Math.abs(now - lastClaim);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays > 1) {
-      this.dailyClaimStreak = 0;
-    }
-  }
-  
-  const rewardAmount = this.calculateDailyClaimAmount();
-  
-  this.tapPoints += rewardAmount;
-  this.dailyClaimStreak += 1;
-  this.lastDailyClaim = now;
-  this.nextDailyClaimAmount = this.calculateDailyClaimAmount();
-  
-  return {
-    claimedAmount: rewardAmount,
-    newStreak: this.dailyClaimStreak,
-    nextClaimAmount: this.nextDailyClaimAmount
-  };
-};
-
-
+// Daily Claim Methods
 userSchema.methods.hasClaimedToday = function() {
   if (!this.lastDailyClaim) return false;
   
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   
-  // Compare dates without time
   return now.getDate() === lastClaim.getDate() && 
          now.getMonth() === lastClaim.getMonth() && 
          now.getFullYear() === lastClaim.getFullYear();
 };
 
 userSchema.methods.canClaimDaily = function() {
-  // First check if user has claimed today
-  if (this.hasClaimedToday()) {
-    return false;
-  }
-
-  // If they've never claimed, they can claim
-  if (!this.lastDailyClaim) {
-    return true;
-  }
-
+  if (this.hasClaimedToday()) return false;
+  if (!this.lastDailyClaim) return true;
+  
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   const hoursSinceLastClaim = (now - lastClaim) / (1000 * 60 * 60);
-
-  // Must wait at least 24 hours between claims
+  
   return hoursSinceLastClaim >= 24;
-};
-
-userSchema.methods.processDailyClaim = function() {
-  if (this.hasClaimedToday()) {
-    throw new Error('Already claimed today. Next claim available tomorrow.');
-  }
-
-  const now = new Date();
-  
-  if (this.lastDailyClaim) {
-    const hoursSinceLastClaim = (now - this.lastDailyClaim) / (1000 * 60 * 60);
-    
-    if (hoursSinceLastClaim < 24) {
-      throw new Error('Must wait 24 hours between claims.');
-    }
-    
-    // Reset streak if more than 48 hours have passed
-    if (hoursSinceLastClaim > 48) {
-      this.dailyClaimStreak = 0;
-    }
-  }
-  
-  const rewardAmount = this.calculateDailyClaimAmount();
-  
-  this.tapPoints += rewardAmount;
-  this.dailyClaimStreak = (this.dailyClaimStreak || 0) + 1;
-  this.lastDailyClaim = now;
-  
-  return {
-    claimedAmount: rewardAmount,
-    newStreak: this.dailyClaimStreak,
-    nextClaimAmount: this.calculateDailyClaimAmount()
-  };
 };
 
 userSchema.methods.calculateDailyClaimAmount = function() {
@@ -419,26 +329,43 @@ userSchema.methods.calculateDailyClaimAmount = function() {
   }
 };
 
-userSchema.methods.canClaimDaily = function() {
-  // If they've claimed today, they can't claim again
-  if (this.hasClaimedToday()) return false;
-  
-  // If they've never claimed, they can claim
-  if (!this.lastDailyClaim) return true;
-  
+userSchema.methods.processDailyClaim = function() {
   const now = new Date();
-  const lastClaim = new Date(this.lastDailyClaim);
   
-  // Set both dates to the start of their respective days
-  const lastClaimDay = new Date(lastClaim.getFullYear(), lastClaim.getMonth(), lastClaim.getDate());
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (this.hasClaimedToday()) {
+    throw new Error('Already claimed today. Next claim available tomorrow.');
+  }
   
-  // Calculate days difference
-  const daysDifference = Math.floor((today - lastClaimDay) / (1000 * 60 * 60 * 24));
+  if (this.lastDailyClaim) {
+    // Calculate hours since last claim
+    const hoursSinceLastClaim = (now - this.lastDailyClaim) / (1000 * 60 * 60);
+    
+    // Reset streak if more than 48 hours passed
+    if (hoursSinceLastClaim > 48) {
+      this.dailyClaimStreak = 0;
+    } else if (hoursSinceLastClaim < 24) {
+      throw new Error('Must wait 24 hours between claims.');
+    }
+  }
   
-  // Can only claim if it's a new day
-  return daysDifference >= 1;
+  const rewardAmount = this.calculateDailyClaimAmount();
+  this.tapPoints += rewardAmount;
+  this.dailyClaimStreak = (this.dailyClaimStreak || 0) + 1;
+  this.lastDailyClaim = now;
+  
+  // Save changes immediately
+  this.markModified('dailyClaimStreak');
+  this.markModified('lastDailyClaim');
+  this.markModified('tapPoints');
+  
+  return {
+    claimedAmount: rewardAmount,
+    newStreak: this.dailyClaimStreak,
+    nextClaimAmount: this.calculateDailyClaimAmount()
+  };
 };
+
+
 
 // Energy Methods
 userSchema.methods.getCurrentEnergy = function() {
