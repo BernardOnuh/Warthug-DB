@@ -342,41 +342,51 @@ userSchema.methods.processDailyClaim = function() {
   };
 };
 
-// Add this to the User Schema
+
 userSchema.methods.hasClaimedToday = function() {
   if (!this.lastDailyClaim) return false;
   
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   
-  return (
-    now.getFullYear() === lastClaim.getFullYear() &&
-    now.getMonth() === lastClaim.getMonth() &&
-    now.getDate() === lastClaim.getDate()
-  );
+  // Compare dates without time
+  return now.getDate() === lastClaim.getDate() && 
+         now.getMonth() === lastClaim.getMonth() && 
+         now.getFullYear() === lastClaim.getFullYear();
 };
 
 userSchema.methods.canClaimDaily = function() {
-  if (this.hasClaimedToday()) return false;
-  
-  if (!this.lastDailyClaim) return true;
-  
+  // First check if user has claimed today
+  if (this.hasClaimedToday()) {
+    return false;
+  }
+
+  // If they've never claimed, they can claim
+  if (!this.lastDailyClaim) {
+    return true;
+  }
+
   const now = new Date();
   const lastClaim = new Date(this.lastDailyClaim);
   const hoursSinceLastClaim = (now - lastClaim) / (1000 * 60 * 60);
-  
+
+  // Must wait at least 24 hours between claims
   return hoursSinceLastClaim >= 24;
 };
 
 userSchema.methods.processDailyClaim = function() {
   if (this.hasClaimedToday()) {
-    throw new Error('Already claimed today. Next claim available in 24 hours.');
+    throw new Error('Already claimed today. Next claim available tomorrow.');
   }
-  
+
   const now = new Date();
   
   if (this.lastDailyClaim) {
     const hoursSinceLastClaim = (now - this.lastDailyClaim) / (1000 * 60 * 60);
+    
+    if (hoursSinceLastClaim < 24) {
+      throw new Error('Must wait 24 hours between claims.');
+    }
     
     // Reset streak if more than 48 hours have passed
     if (hoursSinceLastClaim > 48) {
