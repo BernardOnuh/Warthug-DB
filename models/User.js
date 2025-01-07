@@ -311,8 +311,8 @@ userSchema.methods.canClaimDaily = function() {
 userSchema.methods.processDailyClaim = function() {
   const now = new Date();
   
-  if (!this.canClaimDaily()) {
-    throw new Error('Daily claim not yet available');
+  if (this.hasClaimedToday()) {
+    throw new Error('Already claimed today. Next claim available tomorrow.');
   }
   
   if (this.lastDailyClaim) {
@@ -340,6 +340,38 @@ userSchema.methods.processDailyClaim = function() {
     newStreak: this.dailyClaimStreak,
     nextClaimAmount: this.nextDailyClaimAmount
   };
+};
+
+userSchema.methods.hasClaimedToday = function() {
+  if (!this.lastDailyClaim) return false;
+  
+  const now = new Date();
+  const lastClaim = new Date(this.lastDailyClaim);
+  
+  return now.getFullYear() === lastClaim.getFullYear() &&
+         now.getMonth() === lastClaim.getMonth() &&
+         now.getDate() === lastClaim.getDate();
+};
+
+userSchema.methods.canClaimDaily = function() {
+  // If they've claimed today, they can't claim again
+  if (this.hasClaimedToday()) return false;
+  
+  // If they've never claimed, they can claim
+  if (!this.lastDailyClaim) return true;
+  
+  const now = new Date();
+  const lastClaim = new Date(this.lastDailyClaim);
+  
+  // Set both dates to the start of their respective days
+  const lastClaimDay = new Date(lastClaim.getFullYear(), lastClaim.getMonth(), lastClaim.getDate());
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  // Calculate days difference
+  const daysDifference = Math.floor((today - lastClaimDay) / (1000 * 60 * 60 * 24));
+  
+  // Can only claim if it's a new day
+  return daysDifference >= 1;
 };
 
 // Energy Methods
