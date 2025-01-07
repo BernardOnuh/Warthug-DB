@@ -43,6 +43,9 @@ const userSchema = new mongoose.Schema({
   // Levels
   level: { type: Number, default: 0, min: 0 },
   totalPoints: { type: Number, default: 0, min: 0 },
+    // In the userSchema definition
+  pointsConverted: { type: Number, default: 0 }, 
+  hugPoints: { type: Number, default: 0 },
 
   // Card System
   cards: {
@@ -466,8 +469,12 @@ userSchema.methods.convertToHugPoints = function(pointsToConvert) {
   
   if (isNaN(pointsNum)) throw new Error('Invalid points value');
   if (pointsNum < 1) throw new Error('Minimum 1 point required for conversion');
-  if (this.tapPoints + this.referralPoints < pointsNum) {
-    throw new Error('Insufficient points available for conversion');
+  
+  // Calculate available points for conversion
+  const availableForConversion = (this.tapPoints + this.referralPoints) - this.pointsConverted;
+  
+  if (pointsNum > availableForConversion) {
+    throw new Error(`Can only convert ${availableForConversion} points. ${this.pointsConverted} points already converted`);
   }
 
   const newHugPoints = Number((pointsNum / 10000).toFixed(4));
@@ -475,8 +482,10 @@ userSchema.methods.convertToHugPoints = function(pointsToConvert) {
   const tapPointsRatio = this.tapPoints / totalPoints;
   const referralPointsRatio = this.referralPoints / totalPoints;
   
-  this.tapPoints -= Math.round(pointsNum * tapPointsRatio);
-  this.referralPoints -= Math.round(pointsNum * referralPointsRatio);
+  // Update converted points tracker
+  this.pointsConverted += pointsNum;
+  
+  // Update points (not reducing them anymore)
   this.hugPoints = Number((parseFloat(this.hugPoints.toString()) + newHugPoints).toFixed(4));
   this.lastConversionTime = new Date();
   
@@ -485,14 +494,18 @@ userSchema.methods.convertToHugPoints = function(pointsToConvert) {
 
 // Information Methods
 userSchema.methods.getAllPointsInfo = function() {
+  const totalPoints = this.tapPoints + this.referralPoints;
+  const availableForConversion = totalPoints - this.pointsConverted;
+  
   return {
     tapPoints: this.tapPoints,
     referralPoints: this.referralPoints,
     hugPoints: Number(parseFloat(this.hugPoints.toString()).toFixed(4)),
-    totalPoints: this.totalPoints,
+    totalPoints: totalPoints,
+    pointsConverted: this.pointsConverted,
     availableForConversion: {
-      hugPoints: Number((this.totalPoints / 10000).toFixed(4)),
-      rawPoints: this.totalPoints
+      hugPoints: Number((availableForConversion / 10000).toFixed(4)),
+      rawPoints: availableForConversion
     },
     perTap: this.perTap,
     perHour: this.perHour,
