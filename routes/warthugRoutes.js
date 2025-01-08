@@ -31,6 +31,8 @@ const {
 
 const taskController = require('../controller/taskController');
 
+const voteController = require('../controller/voteController');
+
 // USER ROUTES
 // Core user functionality
 router.post('/register', registerUser);
@@ -82,5 +84,11 @@ router.post('/tasks/create', taskController.createTask);
 router.post('/tasks/batch', taskController.createMultipleTasks);
 router.put('/tasks/update/:taskId', taskController.updateTask);
 router.delete('/tasks/delete/:taskId', taskController.deleteTask);
+
+// VOTING SYSTEM ROUTES
+router.get('/vote/events', voteController.getActiveVoteEvents);
+router.get('/vote/events/:voteEventId', voteController.getVoteResults);
+router.post('/vote/submit', voteController.submitVote);
+router.post('/vote/events/create', voteController.createVoteEvent);
 
 module.exports = router;
