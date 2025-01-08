@@ -212,18 +212,36 @@ userSchema.methods.upgradeCard = async function(section, cardName) {
     }
   }
 
+  // Deduct points and increment upgrade count
   this.tapPoints -= card.currentPrice;
   card.upgradeCount += 1;
   
+  // Update base per hour increase for next level
+  card.perHourIncrease = Math.floor(card.basePrice * Math.pow(card.perHourIncreaseRate, card.upgradeCount - 1));
+  
+  // Calculate new values for next upgrade
   card.currentPrice = Math.floor(card.basePrice * Math.pow(card.priceIncreaseRate, card.upgradeCount));
   card.currentPerHour = Math.floor(card.perHourIncrease * Math.pow(card.perHourIncreaseRate, card.upgradeCount));
   card.currentCooldown = Math.floor(card.baseCooldown * Math.pow(card.cooldownIncreaseRate, card.upgradeCount));
   
+  // Update timestamps and status
   card.lastUpgradeTime = new Date();
   card.isUnlocked = true;
   
+  // Update user's total per hour earnings
   this.perHour = this.calculateTotalPerHour();
-  return card;
+
+  // Return updated card with next upgrade information
+  return {
+    ...card.toObject(),
+    nextPrice: Math.floor(card.basePrice * Math.pow(card.priceIncreaseRate, card.upgradeCount + 1)),
+    nextPerHour: Math.floor(card.perHourIncrease * Math.pow(card.perHourIncreaseRate, card.upgradeCount + 1)),
+    nextCooldown: Math.floor(card.baseCooldown * Math.pow(card.cooldownIncreaseRate, card.upgradeCount + 1)),
+    cooldownRemaining: 0,
+    cooldownEnds: card.lastUpgradeTime.getTime() + (card.currentCooldown * 60 * 1000),
+    canUpgrade: false,
+    timeToNextUpgrade: card.currentCooldown * 60
+  };
 };
 
 userSchema.methods.getCardInfo = function(section, cardName) {
