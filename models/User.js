@@ -637,26 +637,30 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
       level: 1,
       perTap: 1,
       perHour: 1,
-      hugPoints: 1,
-      tapPoints: 1,
-      referralPoints: 1,
-      totalPoints: 1,
-      energy: 1,
-      maxEnergy: 1,
-      directReferrals: 1,
-      indirectReferrals: 1,
-      dailyClaimStreak: 1,
+      hugPoints: { $ifNull: ['$hugPoints', 0] },
+      tapPoints: { $ifNull: ['$tapPoints', 0] },
+      referralPoints: { $ifNull: ['$referralPoints', 0] },
+      totalPoints: { $ifNull: ['$totalPoints', 0] },
+      energy: { $ifNull: ['$energy', 0] },
+      maxEnergy: { $ifNull: ['$maxEnergy', 1000] },
+      dailyClaimStreak: { $ifNull: ['$dailyClaimStreak', 0] },
+      directReferrals: { $ifNull: ['$directReferrals', []] },
+      indirectReferrals: { $ifNull: ['$indirectReferrals', []] },
       totalReferrals: {
         $add: [
-          { $size: "$directReferrals" },
-          { $size: "$indirectReferrals" }
+          { $size: { $ifNull: ['$directReferrals', []] } },
+          { $size: { $ifNull: ['$indirectReferrals', []] } }
         ]
       }
     };
 
     const pipeline = [
-      { $project: projectFields },
-      { $sort: sortField },
+      { 
+        $project: projectFields 
+      },
+      { 
+        $sort: sortField 
+      },
       {
         $group: {
           _id: null,
@@ -688,6 +692,7 @@ userSchema.statics.getLeaderboardWithDetails = async function(type = 'points', u
       total: leaderboard.length > 0 ? leaderboard[0].totalCount : 0
     };
   } catch (error) {
+    console.error('Leaderboard aggregation error:', error);
     throw error;
   }
 };
