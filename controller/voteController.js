@@ -48,58 +48,44 @@ const getActiveVoteEvents = async (req, res) => {
   }
 };
 
-// Submit a vote
 const submitVote = async (req, res) => {
   const { userId, voteEventId, choiceIndex } = req.body;
 
   try {
-    // Start a session for transaction
-    const session = await mongoose.startSession();
-    session.startTransaction();
+    // Find the vote event and user without transaction
+    const voteEvent = await VoteEvent.findById(voteEventId);
+    const user = await User.findOne({ userId });
 
-    try {
-      // Find the vote event and user
-      const voteEvent = await VoteEvent.findById(voteEventId);
-      const user = await User.findOne({ userId });
-
-      if (!voteEvent || !user) {
-        throw new Error('Vote event or user not found');
-      }
-
-      if (!voteEvent.isActive || voteEvent.endDate < new Date()) {
-        throw new Error('Voting event has ended');
-      }
-
-      // Record the vote
-      voteEvent.recordVote(userId, choiceIndex);
-      
-      // Award points to the user
-      user.tapPoints += voteEvent.rewardAmount;
-
-      // Save both documents
-      await Promise.all([
-        voteEvent.save({ session }),
-        user.save({ session })
-      ]);
-
-      await session.commitTransaction();
-
-      res.status(200).json({
-        message: 'Vote recorded successfully',
-        pointsAwarded: voteEvent.rewardAmount,
-        newTapPoints: user.tapPoints,
-        voteEvent: {
-          title: voteEvent.title,
-          choiceVotedFor: voteEvent.choices[choiceIndex].name,
-          currentVotes: voteEvent.choices[choiceIndex].votes
-        }
-      });
-    } catch (error) {
-      await session.abortTransaction();
-      throw error;
-    } finally {
-      session.endSession();
+    if (!voteEvent || !user) {
+      throw new Error('Vote event or user not found');
     }
+
+    if (!voteEvent.isActive || voteEvent.endDate < new Date()) {
+      throw new Error('Voting event has ended');
+    }
+
+    // Record the vote
+    voteEvent.recordVote(userId, choiceIndex);
+    
+    // Award points to the user
+    user.tapPoints += voteEvent.rewardAmount;
+
+    // Save both documents without transaction
+    await Promise.all([
+      voteEvent.save(),
+      user.save()
+    ]);
+
+    res.status(200).json({
+      message: 'Vote recorded successfully',
+      pointsAwarded: voteEvent.rewardAmount,
+      newTapPoints: user.tapPoints,
+      voteEvent: {
+        title: voteEvent.title,
+        choiceVotedFor: voteEvent.choices[choiceIndex].name,
+        currentVotes: voteEvent.choices[choiceIndex].votes
+      }
+    });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
