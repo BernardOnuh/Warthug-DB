@@ -47,6 +47,7 @@ const userSchema = new mongoose.Schema({
   pointsConverted: { type: Number, default: 0 }, 
   hugPoints: { type: Number, default: 0 },
   
+  hasClaimedStarterBonus: { type: Boolean, default: false },
 
   // Card System
   cards: {
@@ -67,9 +68,15 @@ const userSchema = new mongoose.Schema({
     }
   },
 
+  claimedReferrals: [{ type: String }],
+  isVerified: { type: Boolean, default: false },
+  directReferrals: [{ type: Object, default: [] }],
+  indirectReferrals: [{ type: Object, default: [] }],
   dailyClaimStreak: { type: Number, default: 0 },
   lastDailyClaim: { type: Date },
   nextDailyClaimAmount: { type: Number, default: 1000 },
+  lastReferralRewardClaim: { type: Date },
+  referralRankRewardsClaimed: { type: Boolean, default: false },
   
 }, {
   timestamps: true,
@@ -433,63 +440,65 @@ userSchema.methods.awardHourlyPoints = function() {
   return 0;
 };
 
-// Auto Mining Methods
-userSchema.methods.startAutoMine = function(duration = 7200000) { // Default 2 hours
+
+userSchema.add({
+  autoMineRate: { type: Number },
+  lastAutoMineClaim: { type: Date }
+ });
+ 
+ // Auto Mining Methods
+ userSchema.methods.startAutoMine = function() {
+  const autoMineHours = 3;
+  const ratePerHour = this.level <= 5 ? 1200 : 1500;
+  
   this.isAutoMining = true;
   this.autoMineStartTime = new Date();
-  this.autoMineDuration = duration;
+  this.autoMineDuration = autoMineHours * 60 * 60 * 1000; // 3 hours
   this.pendingAutoMinePoints = 0;
+  this.autoMineRate = ratePerHour;
+  this.lastAutoMineClaim = null;
   return true;
-};
-
-userSchema.methods.processAutoMine = function() {
+ };
+ 
+ userSchema.methods.processAutoMine = function() {
   if (!this.isAutoMining) return 0;
-  
+ 
   const now = new Date();
   const elapsedTime = now - this.autoMineStartTime;
-  
+ 
+  // Stop after 3 hours
   if (elapsedTime >= this.autoMineDuration) {
     this.isAutoMining = false;
     this.autoMineStartTime = null;
     this.lastAutoMineEnd = now;
     return 0;
   }
-  
-  const lastClaimTime = this.autoClaimHistory.length > 0 
-    ? this.autoClaimHistory[this.autoClaimHistory.length - 1].claimTime 
-    : this.autoMineStartTime;
-  
+ 
+  const lastClaimTime = this.lastAutoMineClaim || this.autoMineStartTime;
   const hoursSinceLastClaim = (now - lastClaimTime) / (60 * 60 * 1000);
-  
+ 
   if (hoursSinceLastClaim >= 1) {
-    const pointsEarned = 500;
-    this.pendingAutoMinePoints += pointsEarned;
-    
-    this.autoClaimHistory.push({
-      claimTime: now,
-      pointsClaimed: pointsEarned
-    });
+    this.pendingAutoMinePoints += this.autoMineRate;
+    this.lastAutoMineClaim = now;
   }
-  
+ 
   return this.pendingAutoMinePoints;
-};
-
-userSchema.methods.claimAutoMineRewards = function() {
+ };
+ 
+ userSchema.methods.claimAutoMineRewards = function() {
   if (this.pendingAutoMinePoints <= 0) {
     throw new Error('No pending rewards to claim');
   }
-  
+ 
   const pointsToClaim = this.pendingAutoMinePoints;
   this.tapPoints += pointsToClaim;
   this.pendingAutoMinePoints = 0;
   
-  this.autoClaimHistory.push({
-    claimTime: new Date(),
-    pointsClaimed: pointsToClaim
-  });
-  
+  // Restart automine after claim
+  this.startAutoMine();
+ 
   return pointsToClaim;
-};
+ };
 
 // Upgrade Methods
 userSchema.methods.upgradeTapPower = function() {

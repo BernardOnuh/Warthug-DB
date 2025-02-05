@@ -1,58 +1,74 @@
 const User = require('../models/User');
 const mongoose = require('mongoose');
 
-// Register User
+
+// Update registration to not auto-award points
 const registerUser = async (req, res) => {
   try {
-    const { username, userId, referral } = req.body;
-
+    const { username, userId, referral, isVerified } = req.body;
+ 
     const existingUser = await User.findOne({ username });
     if (existingUser) {
       return res.status(400).json({ message: 'Username already exists' });
     }
-
-    const newUser = new User({ username, userId });
-
-    // Handle referral logic
+ 
+    const newUser = new User({
+      username,
+      userId,
+      tapPoints: 100000,
+      hasClaimedStarterBonus: true,
+      directReferrals: [],
+      indirectReferrals: [],
+      claimedReferrals: [],
+      isVerified
+    });
+ 
     if (referral) {
       const referrer = await User.findOne({ username: referral });
       if (!referrer) {
         return res.status(400).json({ message: 'Referral username does not exist' });
       }
-
-      // Add points to referrer
-      referrer.referralPoints += 20000;
+ 
       referrer.directReferrals.push({
         username,
         userId,
-        pointsEarned: 20000
+        isVerified: newUser.isVerified
       });
       await referrer.save();
-
+ 
+      newUser.referral = referral;
+ 
       // Handle indirect referrals
       if (referrer.referral) {
         const indirectReferrer = await User.findOne({ username: referrer.referral });
         if (indirectReferrer) {
-          indirectReferrer.referralPoints += 100;
           indirectReferrer.indirectReferrals.push({
             username,
             userId,
             referredBy: referral,
-            pointsEarned: 100
+            isVerified: newUser.isVerified
           });
           await indirectReferrer.save();
         }
       }
-
-      newUser.referral = referral;
     }
-
+ 
     await newUser.save();
-    res.status(201).json({ message: 'User registered successfully', user: newUser });
+    res.status(201).json({ 
+      message: 'User registered successfully', 
+      user: newUser 
+    });
+ 
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+    console.error('Detailed error:', error);
+    res.status(500).json({ 
+      message: 'Server error',
+      error: error.message,
+      stack: error.stack 
+    });
   }
-};
+ };
+
 
 // Handle Tap Action
 const handleTap = async (req, res) => {
@@ -469,111 +485,279 @@ const refillEnergy = async (req, res) => {
   }
 };
 
-// Get Auto Mine Status
-const getAutoMineStatus = async (req, res) => {
-  const { userId } = req.params;
-
+// Move all function definitions above the exports
+const startAutoMine = async (req, res) => {
+  const { userId } = req.body;
+  
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    user.startAutoMine();
+    await user.save();
+    
+    res.status(200).json({
+      message: 'Auto mining started successfully',
+      autoMine: {
+        isActive: true,
+        startTime: user.autoMineStartTime,
+        endTime: new Date(user.autoMineStartTime.getTime() + user.autoMineDuration),
+        duration: user.autoMineDuration,
+        ratePerHour: user.autoMineRate,
+        pendingPoints: 0
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+ };
+ 
+ const getAutoMineStatus = async (req, res) => {
+  const { userId } = req.params;
+ 
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+ 
+    const now = new Date();
+    const timeRemaining = user.isAutoMining ? 
+      Math.max(0, user.autoMineDuration - (now - user.autoMineStartTime)) : 0;
+ 
+    res.status(200).json({
+      isActive: user.isAutoMining,
+      ratePerHour: user.autoMineRate,
+      pendingPoints: user.pendingAutoMinePoints,
+      startTime: user.autoMineStartTime,
+      endTime: user.isAutoMining ? 
+        new Date(user.autoMineStartTime.getTime() + user.autoMineDuration) : 
+        user.lastAutoMineEnd,
+      timeRemaining,
+      lastClaim: user.lastAutoMineClaim
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+ };
+ 
+ const claimAutoMineRewards = async (req, res) => {
+  const { userId } = req.body;
+  
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    const pointsClaimed = user.claimAutoMineRewards();
+    await user.save();
+    
+    res.status(200).json({
+      message: 'Auto mine rewards claimed successfully',
+      pointsClaimed,
+      newTapPoints: user.tapPoints,
+      newAutoMine: {
+        isActive: true,
+        startTime: user.autoMineStartTime,
+        ratePerHour: user.autoMineRate
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+ };
+
+const claimStarterBonus = async (req, res) => {
+  const { userId } = req.body;
+  try {
+    const user = await User.findOne({ userId });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    
+    if (user.hasClaimedStarterBonus) {
+      return res.status(400).json({ message: 'Starter bonus already claimed' });
     }
 
-    const now = new Date();
-    const recentClaims = user.autoClaimHistory
-      .filter(claim => (now - claim.claimTime) <= (60 * 60 * 1000))
-      .map(claim => ({
-        time: claim.claimTime,
-        points: claim.pointsClaimed
-      }));
+    user.tapPoints += 10000;
+    user.hasClaimedStarterBonus = true;
+    await user.save();
 
     res.status(200).json({
-      message: 'Auto mine status retrieved successfully',
-      data: {
-        isActive: user.isAutoMining,
-        startTime: user.autoMineStartTime,
-        endTime: user.isAutoMining ? 
-          new Date(user.autoMineStartTime.getTime() + user.autoMineDuration) : 
-          user.lastAutoMineEnd,
-        timeRemaining: user.isAutoMining ? 
-          Math.max(0, user.autoMineDuration - (now - user.autoMineStartTime)) : 0,
-        pendingPoints: user.pendingAutoMinePoints,
-        recentClaims,
-        totalClaimsToday: user.autoClaimHistory.filter(claim => 
-          claim.claimTime.toDateString() === now.toDateString()
-        ).length
-      }
+      message: 'Starter bonus claimed successfully',
+      tapPoints: user.tapPoints
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
 
-// Move all function definitions above the exports
-const startAutoMine = async (req, res) => {
-  const { userId, duration } = req.body;
+const checkStarterBonusStatus = async (req, res) => {
+  const { userId } = req.params;
   
   try {
     const user = await User.findOne({ userId });
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
-    }
-    
-    try {
-      user.startAutoMine(duration || 7200000); // Default 2 hours
-      await user.save();
-      
-      res.status(200).json({
-        message: 'Auto mining started successfully',
-        autoMine: {
-          isActive: true,
-          startTime: user.autoMineStartTime,
-          endTime: new Date(user.autoMineStartTime.getTime() + user.autoMineDuration),
-          duration: user.autoMineDuration,
-          pendingPoints: 0
-        },
-        energy: user.getCurrentEnergy(),
-        maxEnergy: user.maxEnergy
-      });
-    } catch (error) {
-      res.status(400).json({ message: error.message });
-    }
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    res.status(200).json({
+      hasClaimedStarterBonus: user.hasClaimedStarterBonus || false,
+      eligible: !user.hasClaimedStarterBonus,
+      bonusAmount: 10000
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
   }
 };
 
-const claimAutoMineRewards = async (req, res) => {
-  const { userId } = req.body;
+const claimReferralReward = async (req, res) => {
+  const { userId, referralId } = req.body;
   
+  try {
+    const user = await User.findOne({ userId });
+    const referredUser = await User.findOne({ userId: referralId });
+ 
+    if (!user || !referredUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+ 
+    // Check if already claimed
+    const alreadyClaimed = user.claimedReferrals?.includes(referralId);
+    if (alreadyClaimed) {
+      return res.status(400).json({ message: 'Reward already claimed for this referral' });
+    }
+ 
+    // Check verification and award points
+    const rewardAmount = referredUser.isVerified ? 50000 : 20000;
+    user.tapPoints += rewardAmount;
+    
+    // Track claimed referral
+    if (!user.claimedReferrals) user.claimedReferrals = [];
+    user.claimedReferrals.push(referralId);
+ 
+    await user.save();
+ 
+    res.status(200).json({
+      message: 'Referral reward claimed successfully',
+      rewardAmount,
+      tapPoints: user.tapPoints
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+ };
+ const getReferralRewards = async (req, res) => {
+  const { userId } = req.params;
+ 
   try {
     const user = await User.findOne({ userId });
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    try {
-      const pointsClaimed = user.claimAutoMineRewards();
-      await user.save();
-      
-      res.status(200).json({
-        message: 'Auto mine rewards claimed successfully',
-        pointsClaimed,
-        newTapPoints: user.tapPoints,
-        totalPoints: user.totalPoints,
-        autoMine: {
-          isActive: user.isAutoMining,
-          pendingPoints: 0,
-          continueMining: true,
-          timeRemaining: user.isAutoMining ? 
-            Math.max(0, user.autoMineDuration - (Date.now() - user.autoMineStartTime)) : 0
-        }
-      });
-    } catch (error) {
-      res.status(400).json({ message: error.message });
-    }
+ 
+    const unclaimedReferrals = user.directReferrals.filter(ref => 
+      !user.claimedReferrals?.includes(ref.userId)
+    );
+ 
+    const totalReward = unclaimedReferrals.reduce((total, ref) => {
+      return total + (ref.isVerified ? 50000 : 20000);
+    }, 0);
+ 
+    res.status(200).json({
+      summary: {
+        totalReferrals: unclaimedReferrals.length,
+        totalReward,
+        referrals: unclaimedReferrals.map(ref => ({
+          username: ref.username,
+          userId: ref.userId,
+          isVerified: ref.isVerified
+        }))
+      }
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Server error', error });
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+ };
+
+ const claimReferralRankReward = async (req, res) => {
+  try {
+    const { userId } = req.body;
+    console.log('Claiming for userId:', userId);
+ 
+    const user = await User.findOne({ userId });
+    if (!user) {
+      console.log('User not found with userId:', userId);
+      return res.status(404).json({ message: 'User not found' });
+    }
+ 
+    const leaderboardData = await User.getLeaderboardWithDetails('referrals', userId);
+    const position = leaderboardData.userPosition?.position;
+    console.log('User position:', position);
+ 
+    if (!position || position > 30) {
+      return res.status(400).json({ 
+        message: 'Not eligible for rewards. Must be in top 30.',
+        currentPosition: position 
+      });
+    }
+ 
+    const lastClaim = user.lastReferralRewardClaim;
+    const now = new Date();
+    
+    if (lastClaim && now - lastClaim < 7 * 24 * 60 * 60 * 1000) {
+      return res.status(400).json({ 
+        message: 'Weekly rewards already claimed',
+        nextClaimTime: new Date(lastClaim.getTime() + 7 * 24 * 60 * 60 * 1000)
+      });
+    }
+ 
+    const rewardAmount = position <= 10 ? 100000 : 50000;
+    user.tapPoints += rewardAmount;
+    user.lastReferralRewardClaim = now;
+    await user.save();
+ 
+    res.status(200).json({
+      success: true,
+      message: 'Weekly referral rank reward claimed',
+      rewardAmount,
+      currentPosition: position,
+      newTapPoints: user.tapPoints,
+      nextClaimTime: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
+    });
+ 
+  } catch (error) {
+    console.error('Error in claimReferralRankReward:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+ };
+ 
+ const getReferralRankRewardStatus = async (req, res) => {
+  try {
+    const { userId } = req.params; // Changed from req.query
+    
+    const user = await User.findOne({ userId });
+    console.log('Finding user with ID:', userId);
+    
+    if (!user) {
+      console.log('User not found in DB');
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const leaderboardData = await User.getLeaderboardWithDetails('referrals', userId);
+    const position = leaderboardData.userPosition?.position;
+
+    const lastClaim = user.lastReferralRewardClaim;
+    const canClaim = !lastClaim || (Date.now() - lastClaim > 7 * 24 * 60 * 60 * 1000);
+
+    res.status(200).json({
+      eligible: position <= 30,
+      position,
+      rewardAmount: position <= 10 ? 100000 : 50000,
+      canClaim,
+      nextClaimTime: lastClaim ? new Date(lastClaim.getTime() + 7 * 24 * 60 * 60 * 1000) : null,
+      leaderboardPosition: leaderboardData.userPosition
+    });
+    
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
 
@@ -581,6 +765,8 @@ const claimAutoMineRewards = async (req, res) => {
 module.exports = {
   registerUser,
   handleTap,
+  claimStarterBonus,
+  checkStarterBonusStatus,
   awardHourlyPoints,
   upgradeTapPower,
   upgradeEnergyLimit,
@@ -594,5 +780,9 @@ module.exports = {
   getAllPoints,
   convertToHugPoints,
   claimDaily,
-  getDailyClaimInfo
+  getDailyClaimInfo,
+  claimReferralReward,
+  getReferralRewards,
+  getReferralRankRewardStatus,
+  claimReferralRankReward
 };

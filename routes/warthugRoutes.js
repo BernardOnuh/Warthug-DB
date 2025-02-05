@@ -17,8 +17,15 @@ const {
   claimDaily,
   getDailyClaimInfo,
   startAutoMine,
+  getAutoMineStatus,
   claimAutoMineRewards,
-  refillEnergy
+  refillEnergy,
+  claimStarterBonus,
+  checkStarterBonusStatus,
+  getReferralRewards,
+  claimReferralReward,
+  getReferralRankRewardStatus,
+  claimReferralRankReward
 } = require('../controller/userController');
 
 const {
@@ -45,7 +52,8 @@ router.put('/upgrade/energy-limit', upgradeEnergyLimit);
 
 // Auto mining system
 router.post('/auto-mine/start', startAutoMine);
-router.post('/auto-mine/claim', claimAutoMineRewards);
+router.post('/auto-mine/claim', claimAutoMineRewards); 
+router.get('/auto-mine/status/:userId', getAutoMineStatus);
 
 // Energy management
 router.post('/energy/refill', refillEnergy);
@@ -90,5 +98,16 @@ router.get('/vote/events', voteController.getActiveVoteEvents);
 router.get('/vote/events/:voteEventId', voteController.getVoteResults);
 router.post('/vote/submit', voteController.submitVote);
 router.post('/vote/events/create', voteController.createVoteEvent);
+
+router.post('/claim-starter-bonus', claimStarterBonus);
+router.get('/starter-bonus/:userId', checkStarterBonusStatus);
+
+router.post('/claim-referral-reward', claimReferralReward);
+router.get('/referral-rewards/:userId', getReferralRewards);
+
+router.get('/referral-rank-reward/:userId', getReferralRankRewardStatus);
+router.post('/claim-referral-rank-reward', claimReferralRankReward );
+
+
 
 module.exports = router;
